@@ -1,4 +1,4 @@
-# Competitor Intelligence Tracker v2
+# Competitor Intelligence Tracker v2.1.0
 
 ## Required Vercel environment variables
 - SITE_PASSWORD
@@ -14,3 +14,6 @@
 - All runtime data persisted in Vercel Blob; no local file editing required
 
 After deployment, open `/admin` and run the first scan.
+
+## Hobby schedule
+Automatic scan: daily at 06:00 UTC. Manual rescans remain available from `/admin`.
