@@ -1,0 +1,1 @@
+import {authorised} from '../../../lib/auth.js';import {paths,readJson} from '../../../lib/store.js';export async function GET(req){if(!authorised(req))return Response.json({error:'Unauthorized'},{status:401});return Response.json(await readJson(paths.articles,{updatedAt:null,articles:[]} ),{headers:{'cache-control':'private, no-store'}})}
