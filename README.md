@@ -1,4 +1,4 @@
-# Competitor Intelligence Tracker - Full Fix v3.0.0
+# Competitor Intelligence Tracker - Full Fix v3.0.1
 
 This release combines the complete v24 visual tracker with the robust authenticated scanning backend.
 
@@ -10,7 +10,7 @@ This release combines the complete v24 visual tracker with the robust authentica
 ## Working backend
 - Password protection for the tracker, admin area and APIs
 - Persistent source configuration using Vercel Blob
-- Manual **Scan now** control and scan history in `/admin.html`
+- Manual **Scan now** control and scan history in `/admin`
 - Scheduled daily refresh via `/api/refresh`
 - Bike-focused relevance filtering and validation-item support
 - Dynamic scanned-news endpoint at `/api/news`
@@ -24,7 +24,13 @@ This release combines the complete v24 visual tracker with the robust authentica
    - `BLOB_READ_WRITE_TOKEN` = Vercel Blob token
 3. Redeploy, preferably without the build cache.
 4. Open the site in a private window. The login screen must appear before the tracker.
-5. After login, use **Scanner admin** at the bottom-right or visit `/admin.html`.
+5. After login, use **Scanner admin** at the bottom-right or visit `/admin`.
 
 ## Important
 Scanned items are stored and exposed through `/api/news`. The restored v24 interface retains its curated tracker dataset and all original visual features. Scanner administration remains separate so backend controls cannot break the tracker UI again.
+
+## v3.0.1 corrections
+- Version information is in the normal page footer, not a floating control.
+- Scanner admin links to the Next.js `/admin` route.
+- `/scanner-admin.html` is included as a direct fallback.
+- The default BBC validation source is `BBC News - World`: `https://feeds.bbci.co.uk/news/world/rss.xml`. It is intentionally marked as validation content, not as a competitor source.
