@@ -65,3 +65,7 @@ Scanned items are stored and exposed through `/api/news`. The restored v24 inter
 - **Add source now saves to the scanner** (the old button only added a row to a list kept in the browser). Paste a plain website link such as `https://bikebiz.com/`; the feed is found automatically. A feed link also works. **Check link** shows the latest headlines before saving.
 - New **General** category for industry sources that cover many brands (BikeBiz is included). Headlines that name a tracked competitor are filed under that brand automatically; the rest stay under General. General is also a filter in News.
 - Sources tab lists every scanned source with its last-scan status, with Pause/Resume and Remove. Social page links (Instagram, Facebook, LinkedIn, TikTok) are rejected with a pointer to Social watch.
+
+## v3.3.1
+- News feed: time range bar (Today / 7 days / 30 days / All time, remembered per browser), an "All brands" chip with selected brands always visible, and a first-load limit of 20 items with "Show 20 more". The page size resets when a filter changes but is kept across the 60s auto-refresh.
+- The year dropdown is hidden in favour of the time range; summaries are clamped to two lines.
