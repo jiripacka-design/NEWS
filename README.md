@@ -60,3 +60,8 @@ Scanned items are stored and exposed through `/api/news`. The restored v24 inter
 - Brand filter: brand-specific sources keep items that mention the brand (so local-language articles are no longer dropped by the English bike-word filter). Duplicate links across sources are skipped.
 - New **Social watch** tab: one button per Instagram / Facebook / LinkedIn / YouTube page, remembering when each was last opened on this device. **Log a post** saves what you find to `/api/manual`, so it appears in News and Insights.
 - Sources you delete in `/admin` stay deleted; new seed sources are added automatically.
+
+## v3.3.0
+- **Add source now saves to the scanner** (the old button only added a row to a list kept in the browser). Paste a plain website link such as `https://bikebiz.com/`; the feed is found automatically. A feed link also works. **Check link** shows the latest headlines before saving.
+- New **General** category for industry sources that cover many brands (BikeBiz is included). Headlines that name a tracked competitor are filed under that brand automatically; the rest stay under General. General is also a filter in News.
+- Sources tab lists every scanned source with its last-scan status, with Pause/Resume and Remove. Social page links (Instagram, Facebook, LinkedIn, TikTok) are rejected with a pointer to Social watch.
