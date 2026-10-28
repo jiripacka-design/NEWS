@@ -1,0 +1,2 @@
+import {authorised} from '../../../lib/auth.js';import {paths,readJson} from '../../../lib/store.js';
+export async function GET(req){if(!authorised(req))return Response.json({error:'Unauthorized'},{status:401});const [d,t]=await Promise.all([readJson(paths.articles,{updatedAt:null,articles:[]}),readJson(paths.tags,{tags:{}})]);return Response.json({...d,tags:t.tags||{}},{headers:{'cache-control':'private, no-store'}})}
