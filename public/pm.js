@@ -8,9 +8,8 @@
   const C = window.CIH, E = window.CIEvents;
   if (!C || !E) { console.error('pm.js: tracker core or events.js missing'); return; }
   const { $, $$, esc, toast } = C;
-  const SP = window.CISpecs || { SECTIONS: [], TEXT: [], KEYS: [] };
   const REG = ['US', 'EMEA', 'APAC', 'CHINA'], CATS = ['Folding bike', 'Folding e-bike', 'E-bike', 'Cargo e-bike'], THR = ['High', 'Medium', 'Low'];
-  const S = { brands: {}, products: [], win: 30, cmp: { us: '', others: [] }, opt: Object.assign({ hideEmpty: true, diffOnly: false }, ld('cih_pm_opt', {})), sort: { k: 'brand', d: 1 }, q: '', mapX: 'priceGBP', mapY: 'weightKg', profile: '', digest: null };
+  const S = { brands: {}, products: [], win: 30, cmp: { us: '', others: [] }, sort: { k: 'brand', d: 1 }, q: '', mapX: 'priceGBP', mapY: 'weightKg', profile: '', digest: null, showEmpty: false };
   const slug = (t) => String(t).toLowerCase().replace(/[^a-z]+/g, '-').replace(/^-|-$/g, '');
   const sv = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } };
   const ld = (k, f) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? f : v; } catch (e) { return f; } };
@@ -37,7 +36,7 @@
   const thrOrder = (n) => { const i = THR.indexOf(bm(n).threat); return i < 0 ? 3 : i; };
   const gbp = (v) => (v == null || v === '' ? '—' : '£' + Math.round(v).toLocaleString('en-GB'));
   const plain = (v) => (v == null || v === '' ? '—' : esc(v));
-  const fold = (p) => (p.foldL && p.foldW && p.foldH ? `${p.foldL} × ${p.foldW} × ${p.foldH} cm` : null);
+  const fold = (p) => (p.foldL && p.foldW && p.foldH ? `${p.foldH} × ${p.foldW} × ${p.foldL} cm` : null);
   const vol = (p) => (p.foldL && p.foldW && p.foldH ? (p.foldL * p.foldW * p.foldH) / 1000 : null);
   const fmtDay = (s) => (s ? E.fmtDate(s) + ' ' + String(s).slice(0, 4) : '—');
   const today = () => new Date().toISOString().slice(0, 10);
@@ -175,28 +174,42 @@
   }
 
   /* =====================  PRODUCT MATRIX  ===================== */
-  const COLS = ['brand', 'model', 'category', 'priceGBP', 'priceNote', 'weightKg', 'foldL', 'foldW', 'foldH', 'wheelIn', 'motor', 'batteryWh', 'rangeKm', 'gears', 'maxLoadKg', ...SP.KEYS, 'launch', 'url', 'sourceUrl', 'lastVerified', 'notes'];
-  const txt = (v) => v;
+  // Text specs, in the order and wording of brompton.com's Specification list.
+  const SPEC_GROUPS = [
+    ['Frame and fork', [['material', 'Material'], ['mainFrame', 'Main frame'], ['rearFrame', 'Rear frame'], ['fork', 'Fork']]],
+    ['Contact points', [['grips', 'Grips'], ['seatpost', 'Seatpost'], ['saddle', 'Saddle'], ['seatclamp', 'Seat clamp'], ['hingeClamps', 'Hinge clamps'], ['pedals', 'Pedals']]],
+    ['Drivetrain', [['gears', 'Speed'], ['drivetrain', 'Drivetrain'], ['chainset', 'Chainset'], ['bottomBracket', 'Bottom bracket'], ['headset', 'Headset'], ['shifters', 'Shifters'], ['sprockets', 'Sprockets'], ['derailleur', 'Derailleur']]],
+    ['Wheels and tyres', [['rearWheel', 'Rear wheel'], ['frontWheel', 'Front wheel'], ['tyres', 'Tyres'], ['tubes', 'Tubes'], ['rollerWheels', 'Roller wheels']]],
+    ['Brakes and equipment', [['brakes', 'Brakes'], ['mudguards', 'Mudguards'], ['lighting', 'Lighting'], ['rack', 'Rack'], ['frontCarrier', 'Front carrier']]]
+  ];
+  const SPEC_KEYS = SPEC_GROUPS.flatMap((g) => g[1].map((x) => x[0]));
+  const COLS = ['brand', 'model', 'category', 'priceGBP', 'priceNote', 'colours', 'handlebars', 'weightKg', 'foldH', 'foldW', 'foldL', 'wheelIn', ...SPEC_KEYS.filter((k) => k !== 'gears'), 'gears', 'motor', 'batteryWh', 'rangeKm', 'launch', 'url', 'sourceUrl', 'lastVerified', 'notes'];
+  const COLS_ALIAS = { foldD: 'foldL', speed: 'gears' };
+  const txt = (k, label) => ({ k, label, get: (p) => p[k], fmt: (v) => v });
   const ROWS = [
-    { head: 'Headline' },
+    { sec: 'Overview' },
     { k: 'priceGBP', label: 'Price', get: (p) => p.priceGBP, fmt: gbp, dir: 'low', note: (p) => p.priceNote },
+    txt('colours', 'Colours'), txt('handlebars', 'Handlebars'),
+    { k: 'launch', label: 'Launch', get: (p) => p.launch, fmt: (v) => v },
+    { sec: 'Size and weight' },
     { k: 'weightKg', label: 'Weight', get: (p) => p.weightKg, fmt: (v) => v + ' kg', dir: 'low' },
-    { k: 'gears', label: 'Speed', get: (p) => p.gears, fmt: txt },
-    { k: 'material', label: 'Material', get: (p) => p.material, fmt: txt },
-    { k: 'fold', label: 'Folded size', get: (p) => fold(p), fmt: txt },
+    { k: 'fold', label: 'Folded size (H × W × D)', get: (p) => fold(p), fmt: (v) => v },
     { k: 'vol', label: 'Folded volume', get: vol, fmt: (v) => Math.round(v) + ' L', dir: 'low' },
     { k: 'wheelIn', label: 'Wheel size', get: (p) => p.wheelIn, fmt: (v) => v + (/^\d+$/.test(v) ? '"' : '') },
-    { k: 'maxLoadKg', label: 'Max load', get: (p) => p.maxLoadKg, fmt: (v) => v + ' kg', dir: 'high' },
-    { head: 'Electric' },
-    { k: 'motor', label: 'Motor', get: (p) => p.motor, fmt: txt },
+    ...SPEC_GROUPS.flatMap(([title, f]) => [{ sec: title }, ...f.map(([k, l]) => txt(k, l))]),
+    { sec: 'Electric' },
+    txt('motor', 'Motor'),
     { k: 'batteryWh', label: 'Battery', get: (p) => p.batteryWh, fmt: (v) => v + ' Wh', dir: 'high' },
     { k: 'rangeKm', label: 'Range', get: (p) => p.rangeKm, fmt: (v) => v + ' km', dir: 'high' },
-    ...SP.SECTIONS.flatMap((sec) => [{ head: sec.label }, ...sec.fields.filter((f) => f.k !== 'material').map((f) => ({ k: f.k, label: f.l, get: (p) => p[f.k], fmt: txt }))]),
-    { head: 'About this record' },
-    { k: 'launch', label: 'Launch', get: (p) => p.launch, fmt: txt },
+    { sec: 'Record' },
     { k: 'lastVerified', label: 'Last verified', get: (p) => p.lastVerified, fmt: (v) => fmtDay(v) },
-    { k: 'src', label: 'Source', get: (p) => p.sourceUrl || p.url, fmt: txt, html: (v) => link(v) }
+    txt('notes', 'Notes'),
+    { k: 'src', label: 'Source', get: (p) => p.sourceUrl || p.url, fmt: (v) => v, html: (v) => link(v) }
   ];
+  // Share of the 35 comparable specs that have a value (the Brompton page's 30 spec rows, plus price, weight, folded size, wheel size).
+  const CORE = ['priceGBP', 'weightKg', 'wheelIn', ...SPEC_KEYS];
+  const filled = (p) => CORE.filter((k) => p[k] != null && p[k] !== '').length + (fold(p) ? 1 : 0);
+  const fillPct = (p) => Math.round((filled(p) / (CORE.length + 1)) * 100);
   const prodById = (id) => S.products.find((p) => p.id === id);
   const prodName = (p) => `${p.brand} ${p.model}`;
   function fixCmp() {
@@ -216,23 +229,16 @@
   function matrixTable() {
     const cols = [S.cmp.us, ...S.cmp.others].map(prodById).filter(Boolean), us = prodById(S.cmp.us);
     if (!cols.length) return '<div class="pm-empty"><strong>No models to compare yet</strong><span>Add your own models and the competitors’ models below. Specs and prices cannot be scraped reliably, so they are entered here (or imported from a CSV) and saved on the server.</span></div>';
-    const head = cols.map((p) => `<th class="${isUs(p.brand) ? 'is-us' : ''}"><div class="mh-brand"><button type="button" class="linkbtn" data-open="${esc(p.brand)}">${esc(p.brand)}</button> ${isUs(p.brand) ? '<span class="pm-us">US</span>' : ''}</div><div class="mh-model">${esc(p.model)}</div><div class="muted">${esc(p.category || catOf(p.brand))}</div><div class="mh-act"><button type="button" class="linkbtn" data-edit="${esc(p.id)}">Edit</button>${isUs(p.brand) ? '' : `<button type="button" class="linkbtn" data-unc="${esc(p.id)}">Remove</button>`}</div></th>`).join('');
-    const opt = S.opt, has = (v) => v != null && v !== '', rows = [];
-    let pend = null;
+    const head = cols.map((p) => `<th class="${isUs(p.brand) ? 'is-us' : ''}"><div class="mh-brand"><button type="button" class="linkbtn" data-open="${esc(p.brand)}">${esc(p.brand)}</button> ${isUs(p.brand) ? '<span class="pm-us">US</span>' : ''}</div><div class="mh-model">${esc(p.model)}</div><div class="muted">${esc(p.category || catOf(p.brand))}</div><div class="fillbar" title="${filled(p)} of ${CORE.length + 1} comparable specs filled in"><i style="width:${fillPct(p)}%"></i></div><div class="muted">${fillPct(p)}% of specs filled</div><div class="mh-act"><button type="button" class="linkbtn" data-edit="${esc(p.id)}">Edit</button>${isUs(p.brand) ? '' : `<button type="button" class="linkbtn" data-unc="${esc(p.id)}">Remove</button>`}</div></th>`).join('');
+    const n = cols.length + 1; let hidden = 0, pend = '', out = '';
     ROWS.forEach((r) => {
-      if (r.head) { pend = r; return; }
-      const vs = cols.map((p) => r.get(p)), filled = vs.filter(has);
-      if (opt.hideEmpty && !filled.length) return;
-      if (opt.diffOnly && cols.length > 1 && (filled.length === cols.length && new Set(filled.map(String)).size === 1)) return;
-      if (pend) { rows.push(pend); pend = null; }
-      rows.push(r);
-    });
-    const body = rows.map((r) => {
-      if (r.head) return `<tr class="pm-sec"><th colspan="${cols.length + 1}">${esc(r.head)}</th></tr>`;
+      if (r.sec) { pend = `<tr class="sec"><th colspan="${n}">${esc(r.sec)}</th></tr>`; return; }
       const vals = cols.map((p) => r.get(p)), nums = vals.filter((v) => typeof v === 'number');
+      if (!S.showEmpty && !vals.some((v) => v != null && v !== '')) { hidden++; return; }
       const best = r.dir && nums.length > 1 ? (r.dir === 'low' ? Math.min(...nums) : Math.max(...nums)) : null;
       const uv = us ? r.get(us) : null;
-      return `<tr><th scope="row">${r.label}</th>${cols.map((p, i) => {
+      out += pend; pend = '';
+      out += `<tr><th scope="row">${r.label}</th>${cols.map((p, i) => {
         const v = vals[i], has = v != null && v !== '';
         let delta = '';
         if (has && r.dir && typeof v === 'number' && !isUs(p.brand) && typeof uv === 'number') {
@@ -241,21 +247,21 @@
         }
         return `<td class="${isUs(p.brand) ? 'is-us' : ''}${best != null && v === best ? ' best' : ''}">${has ? (r.html ? r.html(v) : esc(r.fmt(v))) : '<span class="muted">—</span>'}${r.note && r.note(p) ? `<small class="muted">${esc(r.note(p))}</small>` : ''}${delta}</td>`;
       }).join('')}</tr>`;
-    }).join('');
-    const bar = `<div class="cmp-opts"><label><input type="checkbox" id="optEmpty"${opt.hideEmpty ? ' checked' : ''}> Hide rows with no data</label><label><input type="checkbox" id="optDiff"${opt.diffOnly ? ' checked' : ''}> Only rows that differ</label></div>`;
-    return `${bar}<div class="tbl-wrap"><table class="pm-table matrix"><thead><tr><th></th>${head}</tr></thead><tbody>${body}</tbody></table></div>
-      <div class="sub"><span class="legend-best"></span> best value in the row. Orange “vs us” means the competitor is ahead of us on that spec (cheaper, lighter, smaller fold, bigger battery or longer range).</div>`;
+    });
+    const body = out;
+    return `<div class="tbl-wrap"><table class="pm-table matrix"><thead><tr><th></th>${head}</tr></thead><tbody>${body}</tbody></table></div>
+      <div class="sub"><label class="chk"><input type="checkbox" id="showEmpty"${S.showEmpty ? ' checked' : ''}> Show rows with no data${hidden && !S.showEmpty ? ` (${hidden} hidden)` : ''}</label> &nbsp; <span class="legend-best"></span> best value in the row. Orange “vs us” means the competitor is ahead of us on that spec (cheaper, lighter, smaller fold, bigger battery or longer range).</div>`;
   }
   function modelsTable() {
     const q = S.q.toLowerCase(), k = S.sort.k, d = S.sort.d;
     const list = S.products.filter((p) => !q || `${p.brand} ${p.model} ${p.category}`.toLowerCase().includes(q)).sort((a, b) => {
-      const x = k === 'vol' ? vol(a) : a[k], y = k === 'vol' ? vol(b) : b[k];
+      const x = k === 'vol' ? vol(a) : k === 'fill' ? fillPct(a) : a[k], y = k === 'vol' ? vol(b) : k === 'fill' ? fillPct(b) : b[k];
       if (x == null || x === '') return y == null || y === '' ? 0 : 1; if (y == null || y === '') return -1;
       return (typeof x === 'number' ? x - y : String(x).localeCompare(String(y))) * d || (isUs(b.brand) - isUs(a.brand));
     });
     const th = (key, label, cls) => `<th class="${cls || ''}"><button type="button" class="sortbtn" data-sort="${key}">${label}${S.sort.k === key ? (S.sort.d > 0 ? ' ▲' : ' ▼') : ''}</button></th>`;
-    return `<table class="pm-table"><thead><tr>${th('brand', 'Brand')}${th('model', 'Model')}${th('category', 'Category')}${th('priceGBP', 'Price', 'num')}${th('weightKg', 'Weight', 'num')}${th('vol', 'Folded', 'num')}${th('batteryWh', 'Battery', 'num')}${th('rangeKm', 'Range', 'num')}${th('launch', 'Launch')}${th('lastVerified', 'Verified')}<th></th></tr></thead><tbody>
-      ${list.map((p) => `<tr class="${isUs(p.brand) ? 'is-us' : ''}"><td><button type="button" class="linkbtn" data-open="${esc(p.brand)}">${esc(p.brand)}</button></td><td>${esc(p.model)}</td><td>${esc(p.category || '—')}</td><td class="num">${gbp(p.priceGBP)}</td><td class="num">${p.weightKg != null ? p.weightKg + ' kg' : '—'}</td><td class="num">${vol(p) != null ? Math.round(vol(p)) + ' L' : '—'}</td><td class="num">${p.batteryWh != null ? p.batteryWh + ' Wh' : '—'}</td><td class="num">${p.rangeKm != null ? p.rangeKm + ' km' : '—'}</td><td>${plain(p.launch)}</td><td>${p.lastVerified ? esc(p.lastVerified) : '—'}</td><td class="acts"><button type="button" class="linkbtn" data-cmp="${esc(p.id)}">Compare</button><button type="button" class="linkbtn" data-edit="${esc(p.id)}">Edit</button></td></tr>`).join('') || '<tr><td colspan="11" class="muted">No models match.</td></tr>'}
+    return `<table class="pm-table"><thead><tr>${th('brand', 'Brand')}${th('model', 'Model')}${th('category', 'Category')}${th('priceGBP', 'Price', 'num')}${th('weightKg', 'Weight', 'num')}${th('vol', 'Folded', 'num')}${th('batteryWh', 'Battery', 'num')}${th('rangeKm', 'Range', 'num')}${th('launch', 'Launch')}${th('lastVerified', 'Verified')}${th('fill', 'Specs', 'num')}<th></th></tr></thead><tbody>
+      ${list.map((p) => `<tr class="${isUs(p.brand) ? 'is-us' : ''}"><td><button type="button" class="linkbtn" data-open="${esc(p.brand)}">${esc(p.brand)}</button></td><td>${esc(p.model)}</td><td>${esc(p.category || '—')}</td><td class="num">${gbp(p.priceGBP)}</td><td class="num">${p.weightKg != null ? p.weightKg + ' kg' : '—'}</td><td class="num">${vol(p) != null ? Math.round(vol(p)) + ' L' : '—'}</td><td class="num">${p.batteryWh != null ? p.batteryWh + ' Wh' : '—'}</td><td class="num">${p.rangeKm != null ? p.rangeKm + ' km' : '—'}</td><td>${plain(p.launch)}</td><td>${p.lastVerified ? esc(p.lastVerified) : '—'}</td><td class="num">${fillPct(p)}%</td><td class="acts"><button type="button" class="linkbtn" data-cmp="${esc(p.id)}">Compare</button><button type="button" class="linkbtn" data-edit="${esc(p.id)}">Edit</button></td></tr>`).join('') || '<tr><td colspan="11" class="muted">No models match.</td></tr>'}
       </tbody></table>`;
   }
   const AX = { priceGBP: ['Price (£)', (p) => p.priceGBP, gbp], rangeKm: ['Range (km)', (p) => p.rangeKm, (v) => v + ' km'], weightKg: ['Weight (kg)', (p) => p.weightKg, (v) => v + ' kg'], batteryWh: ['Battery (Wh)', (p) => p.batteryWh, (v) => v + ' Wh'], vol: ['Folded volume (L)', vol, (v) => Math.round(v) + ' L'] };
@@ -286,7 +292,7 @@
     const noModels = C.brands.filter((b) => !S.products.some((p) => p.brand === b));
     const opt = (v, l) => `<option value="${v}"${S.mapX === v || S.mapY === v ? '' : ''}>${l}</option>`;
     $('#matrix').innerHTML = `<div class="head"><div><h2>Product matrix</h2><div class="sub">Our model against up to 4 competitors, side by side. Us: <strong>${esc(usName())}</strong>.</div></div>
-      <div class="source-actions"><button type="button" class="primary" id="addModel">Add model</button><button type="button" class="imagebtn" id="loadStarter">Load researched models</button><button type="button" class="imagebtn" id="impCsv">Import CSV</button><button type="button" class="imagebtn" id="expCsv">Export CSV</button><input type="file" id="csvFile" accept=".csv,text/csv" hidden></div></div>
+      <div class="source-actions"><button type="button" class="primary" id="addModel">Add model</button><button type="button" class="imagebtn" id="loadStarter">Load researched data</button><button type="button" class="imagebtn" id="impCsv">Import CSV</button><button type="button" class="imagebtn" id="expCsv">Export CSV</button><input type="file" id="csvFile" accept=".csv,text/csv" hidden></div></div>
       <div class="panel"><div class="cmp-bar"><label>Our model<select class="field" id="cmpUs">${ours.length ? ours.map((p) => `<option value="${esc(p.id)}"${p.id === S.cmp.us ? ' selected' : ''}>${esc(p.model)}</option>`).join('') : '<option value="">No models yet</option>'}</select></label>
         <label>Add a competitor model<select class="field" id="cmpAdd"><option value="">${avail.length ? 'Choose…' : 'No other models yet'}</option>${Object.keys(byBrand).sort().map((b) => `<optgroup label="${esc(b)}">${byBrand[b].map((p) => `<option value="${esc(p.id)}">${esc(p.model)}</option>`).join('')}</optgroup>`).join('')}</select></label>
         <span class="muted">${S.cmp.others.length} of 4 competitors</span></div>${matrixTable()}</div>
@@ -297,21 +303,26 @@
   RENDER.matrix = renderMatrix;
 
   /* ----- model dialog, CSV ----- */
-  const FIELDS = [['brand', 'Brand', 'select'], ['model', 'Model', 'text'], ['category', 'Category', 'cat'], ['priceGBP', 'Price (£, incl. VAT)', 'number'], ['priceNote', 'Price note', 'text'], ['weightKg', 'Weight (kg)', 'number'], ['wheelIn', 'Wheel size (in)', 'text'], ['motor', 'Motor', 'text'], ['batteryWh', 'Battery (Wh)', 'number'], ['rangeKm', 'Range (km)', 'number'], ['gears', 'Gears', 'text'], ['launch', 'Launch (2025 or 2025-09)', 'text'], ['url', 'Product page link', 'url'], ['sourceUrl', 'Where the specs came from (link)', 'url'], ['lastVerified', 'Last verified', 'date']];
+  const FDEF = [
+    ['Overview', [['brand', 'Brand', 'select'], ['model', 'Model', 'text'], ['category', 'Category', 'cat'], ['priceGBP', 'Price (£, incl. VAT)', 'number'], ['priceNote', 'Price note', 'text'], ['colours', 'Colours', 'text'], ['handlebars', 'Handlebars', 'text'], ['launch', 'Launch (2025 or 2025-09)', 'text']]],
+    ['Size and weight', [['weightKg', 'Weight (kg)', 'number'], ['wheelIn', 'Wheel size (in)', 'text'], ['foldH', 'Folded height (cm)', 'number'], ['foldW', 'Folded width (cm)', 'number'], ['foldL', 'Folded depth (cm)', 'number']]],
+    ...SPEC_GROUPS.map(([t, f]) => [t, f.map(([k, l]) => [k, l, 'text'])]),
+    ['Electric', [['motor', 'Motor', 'text'], ['batteryWh', 'Battery (Wh)', 'number'], ['rangeKm', 'Range (km)', 'number']]],
+    ['Record', [['url', 'Product page link', 'url'], ['sourceUrl', 'Where the specs came from (link)', 'url'], ['lastVerified', 'Last verified', 'date'], ['notes', 'Notes', 'text']]]
+  ];
+  const FKEYS = FDEF.flatMap((g) => g[1].map((x) => x[0]));
   function modelDialog() {
+    const inp = ([k, l, t]) => `<label>${l}${t === 'select' ? `<select class="field" id="pm-${k}" required>${[...C.brands].sort((a, b) => (isUs(b) - isUs(a)) || a.localeCompare(b)).map((b) => `<option>${esc(b)}</option>`).join('')}</select>` : t === 'cat' ? `<select class="field" id="pm-${k}"><option value="">Same as brand</option>${CATS.map((c) => `<option>${c}</option>`).join('')}</select>` : `<input class="field" id="pm-${k}" type="${t}"${t === 'number' ? ' step="any" min="0"' : ''}${k === 'model' ? ' required maxlength="120"' : ''}>`}</label>`;
     const d = document.createElement('dialog'); d.id = 'pmModel';
     d.innerHTML = `<form id="pmModelForm"><div class="mh"><strong id="pmModelTitle">Add model</strong><button type="button" data-close aria-label="Close">×</button></div><div class="mb source-form"><input type="hidden" id="pm-id">
-      <div class="source-form-grid">${FIELDS.map(([k, l, t]) => `<label>${l}${t === 'select' ? `<select class="field" id="pm-${k}" required>${[...C.brands].sort((a, b) => (isUs(b) - isUs(a)) || a.localeCompare(b)).map((b) => `<option>${esc(b)}</option>`).join('')}</select>` : t === 'cat' ? `<select class="field" id="pm-${k}"><option value="">Same as brand</option>${CATS.map((c) => `<option>${c}</option>`).join('')}</select>` : `<input class="field" id="pm-${k}" type="${t}"${t === 'number' ? ' step="any" min="0"' : ''}${k === 'model' ? ' required maxlength="120"' : ''}>`}</label>`).join('')}
-      <label>Folded size, cm (L × W × H)<span class="tri"><input class="field" id="pm-foldL" type="number" step="any" min="0" placeholder="L"><input class="field" id="pm-foldW" type="number" step="any" min="0" placeholder="W"><input class="field" id="pm-foldH" type="number" step="any" min="0" placeholder="H"></span></label></div>
-      ${SP.SECTIONS.map((sec) => `<details class="pm-spec"><summary>${esc(sec.label)}</summary><div class="source-form-grid">${sec.fields.map((f) => `<label>${esc(f.l)}<input class="field" id="pm-${f.k}" maxlength="${f.n}"></label>`).join('')}</div></details>`).join('')}
-      <label>Max load (kg)<input class="field" id="pm-maxLoadKg" type="number" step="any" min="0"></label>
-      <label>Notes<input class="field" id="pm-notes" maxlength="600"></label><div class="sf-res" id="pm-err" role="status"></div>
+      ${FDEF.map(([t, f], i) => `<fieldset class="pm-sec"><legend>${esc(t)}</legend><div class="source-form-grid">${f.map(inp).join('')}</div></fieldset>`).join('')}
+      <div class="sf-res" id="pm-err" role="status"></div>
       <div class="form-actions"><button type="button" class="imagebtn danger" id="pm-del" hidden>Delete model</button><button type="button" class="imagebtn" data-close>Cancel</button><button class="primary">Save model</button></div></div></form>`;
     document.body.appendChild(d);
     d.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) d.close(); });
     $('#pmModelForm').onsubmit = async (e) => {
       e.preventDefault();
-      const o = { id: $('#pm-id').value }; [...FIELDS.map((f) => f[0]), 'foldL', 'foldW', 'foldH', 'maxLoadKg', ...SP.KEYS, 'notes'].forEach((k) => { o[k] = $('#pm-' + k).value.trim(); });
+      const o = { id: $('#pm-id').value }; FKEYS.forEach((k) => { o[k] = $('#pm-' + k).value.trim(); });
       try { const r = await api('POST', '/api/products', { product: o }); S.products = r.products; d.close(); toast('Model saved'); if (!$('#pm-id').value) { const n = S.products.find((p) => p.brand === o.brand && p.model.toLowerCase() === o.model.toLowerCase()); if (n) addCmp(n.id); } renderMatrix(); } catch (err) { $('#pm-err').textContent = err.message; $('#pm-err').className = 'sf-res bad'; }
     };
     $('#pm-del').onclick = async () => {
@@ -322,19 +333,20 @@
   function openModel(p, brand) {
     $('#pmModelTitle').textContent = p ? 'Edit model' : 'Add model'; $('#pm-err').textContent = ''; $('#pm-err').className = 'sf-res';
     $('#pm-id').value = p ? p.id : '';
-    [...FIELDS.map((f) => f[0]), 'foldL', 'foldW', 'foldH', 'maxLoadKg', ...SP.KEYS, 'notes'].forEach((k) => { $('#pm-' + k).value = p && p[k] != null ? p[k] : ''; });
+    FKEYS.forEach((k) => { $('#pm-' + k).value = p && p[k] != null ? p[k] : ''; });
     if (!p) { $('#pm-brand').value = brand || usName(); $('#pm-lastVerified').value = today(); const m = C.models.find((x) => x.name === $('#pm-brand').value); $('#pm-model').placeholder = m ? `e.g. ${m.model}` : ''; }
     $('#pm-del').hidden = !p; $('#pmModel').showModal();
   }
+  /* One click: load the researched models bundled with the app (starter-data/products.json). Existing models are updated, none are deleted. */
   async function loadStarter() {
     try {
-      const r = await fetch('/starter-products.json', { credentials: 'same-origin' }); if (!r.ok) throw new Error('Starter file not found');
-      const d = await r.json(), list = d.products || [];
-      if (!confirm(`Load ${list.length} researched models (${d.researched || 'see notes'})?\nModels you already have are updated only in the fields the file fills in; nothing else is touched.`)) return;
-      const res = await api('POST', '/api/products', { products: list }); S.products = res.products;
-      toast(`Loaded: ${res.added} new, ${res.updated} updated`); refresh();
-    } catch (err) { toast(err.message); }
+      const r = await fetch('/starter-data/products.json', { credentials: 'same-origin' }); if (!r.ok) throw new Error('starter file not found');
+      const list = (await r.json()).products || [];
+      if (!confirm(`Load ${list.length} researched models (Brompton, Tern, Dahon, Ahooga, Gocycle)?\n\nModels with the same brand and model name are updated with the starter values; nothing is deleted. Each row lists its source and date, so check prices before relying on them.`)) return;
+      const d = await api('POST', '/api/products', { products: list }); S.products = d.products; toast(`${d.added} added, ${d.updated} updated`); renderMatrix();
+    } catch (err) { toast('Could not load: ' + err.message); }
   }
+
   function parseCSV(t) {
     t = t.replace(/^\uFEFF/, ''); const rows = []; let r = [], f = '', q = false;
     for (let i = 0; i < t.length; i++) {
@@ -355,7 +367,7 @@
   async function importCsv(file) {
     try {
       const rows = parseCSV(await file.text()); if (rows.length < 2) throw new Error('The file has no data rows');
-      const head = rows[0].map((h) => h.trim()), unknown = head.filter((h) => h && !COLS.includes(h));
+      const head = rows[0].map((h) => { h = h.trim(); return COLS_ALIAS[h] || h; }), unknown = head.filter((h) => h && !COLS.includes(h));
       if (!head.includes('brand') || !head.includes('model')) throw new Error('The first row must include the columns brand and model');
       const products = rows.slice(1).map((r) => { const o = {}; head.forEach((h, i) => { if (COLS.includes(h)) o[h] = (r[i] || '').trim(); }); return o; });
       if (!confirm(`Import ${products.length} model${products.length === 1 ? '' : 's'}? Matching brand + model rows are updated; empty cells in a column that is present will clear that value.${unknown.length ? '\nIgnored columns: ' + unknown.join(', ') : ''}`)) return;
@@ -568,9 +580,9 @@
         case 'fetchPhotos': return fetchPhotos();
         case 'impBrands': return $('#brandFile').click();
         case 'addModel': return openModel(null);
+        case 'loadStarter': return loadStarter();
         case 'impCsv': return $('#csvFile').click();
         case 'expCsv': return exportCsv();
-        case 'loadStarter': return loadStarter();
         case 'manageWatch': case 'pinFirst': return manageWatch();
         case 'profBack': return go('competitors');
         case 'profEdit': return openBrandDialog();
@@ -585,7 +597,7 @@
     document.addEventListener('keydown', (e) => { const c = e.target.closest && e.target.closest('.wc'); if (c && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openProfile(c.dataset.open); } });
     document.addEventListener('change', async (e) => {
       const t = e.target;
-      if (t.id === 'optEmpty' || t.id === 'optDiff') { S.opt[t.id === 'optEmpty' ? 'hideEmpty' : 'diffOnly'] = t.checked; sv('cih_pm_opt', S.opt); return renderMatrix(); }
+      if (t.id === 'showEmpty') { S.showEmpty = t.checked; return renderMatrix(); }
       if (t.id === 'cmpUs') { S.cmp.us = t.value; fixCmp(); return renderMatrix(); }
       if (t.id === 'cmpAdd') { if (t.value) addCmp(t.value); return; }
       if (t.id === 'mapX' || t.id === 'mapY') { S[t.id] = t.value; $('#mapBox').innerHTML = mapSvg(); return; }

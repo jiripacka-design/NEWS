@@ -1,13 +1,18 @@
-# Starter data (review before importing)
+# Starter data
 
-Researched on 27 Oct 2026 from the public sources linked in each file. Nothing here is loaded automatically.
+Researched 27-28 Oct 2026 from the public pages linked in each row. Every product row has its own `sourceUrl` and `lastVerified` date.
 
-- `brand-data.json`: company facts for Brompton, Tern and Dahon. Import with **Competitors > Import brand data**.
-- `brompton-models.csv`: Brompton's range (price, weight, wheel size, gears, motor). Import with **Product matrix > Import CSV**.
+- **`public/starter-data/products.json`**: 13 models. Loaded by **Product matrix > Load researched data** (existing models with the same brand + model are updated, nothing is deleted). `products.csv` is the same data for spreadsheets or **Import CSV**.
+- **`brand-data.json`**: company facts for Brompton, Tern, Dahon, Ahooga, Gocycle and Birdy. Import with **Competitors > Import brand data**.
 
-Please check before relying on them:
-- Prices and weights come from a UK retailer's "from" prices. Brompton's own site and other retailers differ, and prices change, so confirm on brompton.com and correct what is wrong.
-- Folded size, battery size, range and launch date were left blank because the sources did not agree or did not state them.
-- Headcounts are third-party estimates, not company figures.
-- No country lists were found for any of the three brands (public sources give counts such as "65 countries", not lists), so none were added. Tern and Dahon will show an empty map until you add countries on their profiles.
-- Gocycle, Birdy, UTO, Ahooga and the rest were not researched.
+## Confidence
+- **Official brand page, full spec:** Brompton C Line 12-speed MY27 (the page you linked), Tern Verge X11, Brompton Electric C Line (spec from brompton.com; weight and price from a UK retailer).
+- **Brand page plus press or retailer:** Dahon Mariner D8, Ahooga A-MAX / E-MAX, Gocycle G4, Brompton P Line MK2.
+- **Carried over, not rechecked:** Brompton A, G and T Line and Electric T Line use UK retailer "from" prices and weights from the earlier starter file.
+
+## Known gaps
+- No GBP price for Dahon and Ahooga (EUR/USD noted in the price note). Gocycle's price is from the G4 launch article.
+- Competitor sites publish far fewer component details than Brompton does, so most competitor rows are 25-80% filled.
+- Folded sizes on several competitor pages have no axis labels; the assignment to H/W/D is noted on those rows. Volume is unaffected.
+- Birdy: Wikipedia says Riese & Müller stopped selling it in 2025. Check before treating it as active.
+- Not researched: the other 31 brands (UTO, Pacific Cycles, Strida, Bickerton, Bike Friday, Montague, Engwe, Lectric, Fiido and so on).

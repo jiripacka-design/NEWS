@@ -41,6 +41,34 @@
         "https://uk.dahon.com/pages/about",
         "https://eu.dahon.com/?p=15362"
       ]
+    },
+    "Ahooga": {
+      "hq": "Belgium",
+      "website": "https://ahooga.bike/",
+      "positioning": "Belgian-designed and built 20-inch folding bike (A-MAX) with a patented hinge-free double-triangle frame, upgradeable to electric (E-MAX).",
+      "dataNote": "Belgian design and manufacture per BIKE Magazin. No founding year, headcount or country list found.",
+      "lastVerified": "2026-10-28",
+      "sources": [
+        "https://www.bike-magazin.de/en/bicycles/city-bikes/folding-bikes-or-folding-bikes/new-ahooga-folding-bikes-folding-bikes-designed-developed-and-manufactured-in-belgium/"
+      ]
+    },
+    "Gocycle": {
+      "website": "https://gocycle.com/",
+      "positioning": "Premium folding e-bike with a proprietary front-hub motor, single-sided carbon fork and 10-second fold.",
+      "dataNote": "Press describes Gocycle as made by Karbon Kinetics. Headquarters, founding year and headcount were not confirmed.",
+      "lastVerified": "2026-10-28",
+      "sources": [
+        "https://road.cc/content/news/gocycle-g4-folding-e-bike-range-launched-282199",
+        "https://www.moveelectric.com/e-bikes/e-bike-review-gocycle-g4-mclaren-designers-take-e-mobility"
+      ]
+    },
+    "Birdy": {
+      "positioning": "Full-suspension folding bike designed by Riese & Müller and built by Pacific Cycles in Taiwan.",
+      "dataNote": "CHECK: Wikipedia says Riese & Müller stopped marketing and selling the Birdy in 2025 to focus on e-bikes. Confirm whether the Birdy is still sold (for example by Pacific Cycles) before treating it as an active competitor.",
+      "lastVerified": "2026-10-28",
+      "sources": [
+        "https://en.wikipedia.org/wiki/Birdy_(bicycle)"
+      ]
     }
   }
 }
