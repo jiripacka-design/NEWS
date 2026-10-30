@@ -121,7 +121,7 @@
    "brand": "Dahon",
    "model": "Mariner D8",
    "category": "Folding bike",
-   "priceNote": "No GBP price found. US $899 (sale; list $949) on usa.dahon.com; EU price not clear on de.dahon.com",
+   "priceNote": "US $899 (sale; list $949) on usa.dahon.com, shown in £ at an approximate rate. EU price not clear on de.dahon.com",
    "weightKg": 12.64,
    "foldH": 65,
    "foldW": 28,
@@ -136,7 +136,8 @@
    "url": "https://de.dahon.com/products/mariner",
    "sourceUrl": "https://de.dahon.com/products/mariner",
    "notes": "Max rider weight 105 kg. Europe page lists folded size as 65 x 28 x 80 cm without axis labels (assigned H, W, L); US page lists 32.6 x 14 x 26.4 in. Components differ between the older Mariner D8 and the 2026 Mariner D8 II (Tektro 855AL brakes, CST 20x1.5 tyres, Shimano 8-speed, 27.9 lb on retailer pages); confirm which version you track.",
-   "lastVerified": "2026-10-28"
+   "lastVerified": "2026-10-28",
+   "priceUSD": 899
   },
   {
    "brand": "Brompton",
@@ -255,7 +256,7 @@
    "brand": "Ahooga",
    "model": "A-MAX Alfine 8",
    "category": "Folding bike",
-   "priceNote": "EUR 1,999 RRP (BIKE Magazin); no GBP price found",
+   "priceNote": "RRP in euros per BIKE Magazin; shown in £ at an approximate rate",
    "weightKg": 14,
    "foldH": 69,
    "foldW": 37,
@@ -266,13 +267,14 @@
    "url": "https://www.ahooga.bike/products/a-max-alfine-8",
    "sourceUrl": "https://www.bike-magazin.de/en/bicycles/city-bikes/folding-bikes-or-folding-bikes/new-ahooga-folding-bikes-folding-bikes-designed-developed-and-manufactured-in-belgium/",
    "notes": "Patented double-triangle frame, no frame hinge. Folded size listed as 72 x 69 x 37 cm without axis labels (assigned L 72, H 69, W 37). Max 120 kg rider plus bike. Upgradeable to E-MAX. Made in Belgium. The UK site lists a 7-speed Nexus version at 14.6 kg.",
-   "lastVerified": "2026-10-28"
+   "lastVerified": "2026-10-28",
+   "priceEUR": 1999
   },
   {
    "brand": "Ahooga",
    "model": "E-MAX Derailleur",
    "category": "Folding e-bike",
-   "priceNote": "EUR 2,999 RRP (BIKE Magazin); no GBP price found",
+   "priceNote": "RRP in euros per BIKE Magazin; shown in £ at an approximate rate",
    "weightKg": 17,
    "foldH": 69,
    "foldW": 37,
@@ -283,7 +285,8 @@
    "url": "https://ahooga.bike/pages/e-max-derailleur",
    "sourceUrl": "https://ahooga.bike/pages/e-max-derailleur",
    "notes": "Battery capacity and range not stated on the pages read. Folded size 72 x 69 x 37 cm (axes unlabelled). Max 120 kg rider plus bike. E-MAX Alfine: 18 kg, EUR 3,499.",
-   "lastVerified": "2026-10-28"
+   "lastVerified": "2026-10-28",
+   "priceEUR": 2999
   },
   {
    "brand": "Gocycle",

@@ -26,7 +26,7 @@ test('required system sources cannot be deleted through the API',()=>{
 test('Watchlist is merged into Insights and News is the landing page',()=>{
   const p=fs.readFileSync('public/pm.js','utf8');
   assert.ok(!p.includes("go('watch')")&&!p.includes("mkNav('watch'"));assert.match(p,/: 'news'\);/);
-  for(const t of ['insOverview','insPortfolio','insChart'])assert.ok(p.includes('function '+t));
+  for(const t of ['insOverview','insPortfolio','insChart','insMarkets'])assert.ok(p.includes('function '+t));assert.ok(!p.includes('insActivity'));assert.ok(!/pareto/i.test(p));
 });
 
 test('picture buttons are scoped to the Competitors grid so other buttons keep their own actions',()=>{
@@ -36,4 +36,20 @@ test('picture buttons are scoped to the Competitors grid so other buttons keep t
 test('brand CSV export and import exist for the competitor fill-in workflow',()=>{
   const p=fs.readFileSync('public/pm.js','utf8');
   for(const k of ['exportBrandsCsv','brandsFromCsv','paSkus','paCategories','figuresYear'])assert.ok(p.includes(k),k);
+});
+
+test('Brompton is branded blue #002fa7 and the app is named Brompton Enemies',()=>{
+  const h=fs.readFileSync('public/tracker.html','utf8');
+  assert.ok(h.includes('--us:#002fa7'));assert.ok(!/f2b13c|f2b84b/i.test(h));
+  assert.ok(h.includes('<h1>Brompton Enemies</h1>'));assert.ok(!h.includes('Competitor Intelligence'));
+  assert.match(fs.readFileSync('app/layout.js','utf8'),/Brompton Enemies/);
+});
+test('Product matrix is now Product Comparison, with remove buttons and a clickable + picker',()=>{
+  const p=fs.readFileSync('public/pm.js','utf8');
+  assert.ok(!/Product matrix/i.test(p));assert.ok(p.includes("'Product Comparison'"));
+  for(const k of ['data-rm','data-pick','openPicker','ap-x','ap-add'])assert.ok(p.includes(k),k);
+});
+test('the world map is flat (Miller cylindrical) and Markets is the first Insights tab',()=>{
+  const m=fs.readFileSync('public/world-map.js','utf8'),p=fs.readFileSync('public/pm.js','utf8');
+  assert.match(m,/Miller cylindrical/);assert.match(p,/TABS = \[\['markets'/);assert.ok(p.includes("insTab: 'markets'"));
 });

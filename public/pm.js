@@ -1,4 +1,4 @@
-/* Product-manager features for the Competitor Intelligence Hub (v3.8.0):
+/* Product-manager features for the Competitor Intelligence Hub (v3.7.0):
    insights (watchlist, momentum, portfolio and volumes, price chart, regions, data gaps), product comparison matrix, competitor profiles, event types and the weekly digest preview.
    Needs window.CIH (exposed by tracker.html) and window.CIEvents (events.js). Saved data lives on the
    server (/api/brands, /api/products, /api/tags) so everyone who signs in sees the same thing. */
@@ -8,7 +8,7 @@
   if (!C || !E) { console.error('pm.js: tracker core or events.js missing'); return; }
   const { $, $$, esc, toast } = C;
   const REG = ['US', 'EMEA', 'APAC', 'CHINA'], CATS = ['Folding bike', 'Folding e-bike', 'E-bike', 'Cargo e-bike'], THR = ['High', 'Medium', 'Low'];
-  const S = { brands: {}, products: [], win: 30, cmp: { us: '', others: [] }, sort: { k: 'brand', d: 1 }, q: '', profile: '', digest: null, showEmpty: false, diff: false, wide: true, insTab: 'overview', pfSort: { k: 'u', d: -1 }, cy: 'weightKg', cscale: 'log', pareto: false, chHide: new Set(), chFind: '' };
+  const S = { brands: {}, products: [], win: 30, cmp: { us: '', others: [] }, sort: { k: 'brand', d: 1 }, q: '', profile: '', digest: null, showEmpty: false, diff: false, wide: true, insTab: 'markets', pfSort: { k: 'u', d: -1 }, cview: 'ladder', cscale: 'log', chHide: new Set(), chFind: '', mkSel: 'all', mkC: '', mkAbsent: false, pickSlot: 0, pickQ: '' };
   const slug = (t) => String(t).toLowerCase().replace(/[^a-z]+/g, '-').replace(/^-|-$/g, '');
   const sv = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } };
   const ld = (k, f) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? f : v; } catch (e) { return f; } };
@@ -34,6 +34,16 @@
   const catOf = (n) => bm(n).category || C.defaultCategory[n] || 'E-bike';
   const thrOrder = (n) => { const i = THR.indexOf(bm(n).threat); return i < 0 ? 3 : i; };
   const gbp = (v) => (v == null || v === '' ? '—' : '£' + Math.round(v).toLocaleString('en-GB'));
+  // Price in pounds. Models priced only in euros or dollars are converted at editable approximate rates (Insights > Charts) so they can still be compared and plotted.
+  const FX_DEFAULT = { EUR: 0.85, USD: 0.74 };
+  const priceOf = (p) => {
+    const fx = S.fx || FX_DEFAULT, has = (v) => v != null && v !== '';
+    if (has(p.priceGBP)) return { v: p.priceGBP, conv: '' };
+    if (has(p.priceEUR)) return { v: Math.round(p.priceEUR * fx.EUR), conv: `converted from €${Number(p.priceEUR).toLocaleString('en-GB')} at €1 = £${fx.EUR}` };
+    if (has(p.priceUSD)) return { v: Math.round(p.priceUSD * fx.USD), conv: `converted from $${Number(p.priceUSD).toLocaleString('en-GB')} at $1 = £${fx.USD}` };
+    return { v: null, conv: '' };
+  };
+  const priceTxt = (p) => { const x = priceOf(p); return x.v == null ? '—' : (x.conv ? '≈ ' : '') + gbp(x.v); };
   const plain = (v) => (v == null || v === '' ? '—' : esc(v));
   const fold = (p) => (p.foldL && p.foldW && p.foldH ? `${p.foldH} × ${p.foldW} × ${p.foldL} cm` : null);
   const vol = (p) => (p.foldL && p.foldW && p.foldH ? (p.foldL * p.foldW * p.foldH) / 1000 : null);
@@ -83,12 +93,12 @@
   function openNews(brand, type) { C.evtSel = type || ''; const sel = $('#evtType'); if (sel) sel.value = type || ''; C.setNewsBrand(brand); }
 
   /* =====================  INSIGHTS (watchlist + insights on one page)  ===================== */
-  const TABS = [['overview', 'Overview'], ['portfolio', 'Portfolio and volumes'], ['chart', 'Price vs spec'], ['markets', 'Markets'], ['activity', 'Activity'], ['gaps', 'Data gaps']];
+  const TABS = [['markets', 'Markets'], ['overview', 'Overview'], ['portfolio', 'Portfolio and volumes'], ['chart', 'Charts'], ['gaps', 'Data gaps']];
   // Short plain-English explanations, shown above each table so every number can be read without a manual.
-  const gloss = (rows) => `<dl class="gloss">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>`;
+  const gloss = (rows) => `<details class="howto" open><summary>How to read this</summary><dl>${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl></details>`;
   function wcard(b, mom) {
     const m = mom[b] || { cur: 0, prev: 0, spark: new Array(12).fill(0), label: 'No activity' };
-    const ps = S.products.filter((p) => p.brand === b), prices = ps.map((p) => p.priceGBP).filter((x) => x != null);
+    const ps = S.products.filter((p) => p.brand === b), prices = ps.map((p) => priceOf(p).v).filter((x) => x != null);
     const last = C.news.find((n) => n.brand === b);
     const range = ps.length ? ` · ${ps.length} model${ps.length === 1 ? '' : 's'}${prices.length ? ' · ' + (Math.min(...prices) === Math.max(...prices) ? gbp(prices[0]) : gbp(Math.min(...prices)) + '–' + gbp(Math.max(...prices))) : ''}` : '';
     return `<article class="wc${isUs(b) ? ' is-us' : ''}" data-open="${esc(b)}" tabindex="0" role="button">
@@ -105,8 +115,8 @@
   }
   function renderInsights() {
     const root = $('#pmInsights'); if (!root) return;
-    const us = usName(), W = S.win, showWin = S.insTab === 'overview' || S.insTab === 'activity';
-    const body = { overview: insOverview, portfolio: insPortfolio, chart: insChart, markets: insMarkets, activity: insActivity, gaps: insGaps }[S.insTab]();
+    const us = usName(), W = S.win, showWin = S.insTab === 'overview';
+    const body = { overview: insOverview, portfolio: insPortfolio, chart: insChart, markets: insMarkets, gaps: insGaps }[S.insTab]();
     root.innerHTML = `<div class="head"><div><h2>Insights</h2><div class="sub">Who matters, what they are doing, how big they are and how we compare. Us: <strong>${esc(us)}</strong>.</div></div>
       <div class="source-actions">${showWin ? `<div class="rangebar" id="pmWin" role="group" aria-label="Window">${[7, 30, 90].map((d) => `<button type="button" data-w="${d}" class="${d === W ? 'on' : ''}">${d} days</button>`).join('')}</div>` : ''}<button type="button" class="imagebtn" id="manageWatch">Manage watchlist</button></div></div>
       <div class="tabs2" role="tablist" aria-label="Insights sections">${TABS.map(([k, l]) => `<button type="button" role="tab" aria-selected="${k === S.insTab}" data-itab="${k}" class="${k === S.insTab ? 'on' : ''}">${l}</button>`).join('')}</div>${body}`;
@@ -130,14 +140,15 @@
         ${gloss([['Last ' + W + 'd', 'News items in the last ' + W + ' days.'], ['Before', 'Items in the ' + W + ' days before that.'], ['Change', 'Last minus before. Green is busier, red is quieter.'], ['Status', 'Accelerating, Steady, Slowing, New activity or No activity.']])}
         <div class="tbl-wrap"><table class="pm-table"><thead><tr><th>Brand</th><th class="num">Last ${W}d</th><th class="num">Before</th><th class="num">Change</th><th>12 weeks</th><th>Status</th></tr></thead><tbody>
         ${ml.map((m) => `<tr class="${isUs(m.brand) ? 'is-us' : ''}"><td><button type="button" class="linkbtn" data-open="${esc(m.brand)}">${esc(m.brand)}</button> ${badges(m.brand)}</td><td class="num">${m.cur}</td><td class="num">${m.prev}</td><td class="num ${m.delta > 0 ? 'pos' : m.delta < 0 ? 'neg' : ''}">${m.delta > 0 ? '+' : ''}${m.delta}</td><td>${spark(m.spark)}</td><td><span class="st ${statusCls[m.label]}">${m.label}</span></td></tr>`).join('') || '<tr><td colspan="6" class="muted">No dated items yet.</td></tr>'}
-        </tbody></table></div><div class="sub">${quiet > 0 ? `${quiet} other brand${quiet === 1 ? ' has' : 's have'} no items in these windows. ` : ''}This counts items the tracker has stored, so a brand with few sources can look quiet when it is not.</div></div>`;
+        </tbody></table></div><div class="sub">${quiet > 0 ? `${quiet} other brand${quiet === 1 ? ' has' : 's have'} no items in these windows. ` : ''}This counts items the tracker has stored, so a brand with few sources can look quiet when it is not.</div></div>
+      ${digestPanel()}`;
   }
 
   /* ----- Portfolio and volumes: how big is each competitor, how wide is the range, how deep is the P&A offer ----- */
   const num0 = (v) => (v == null ? '—' : Math.round(v).toLocaleString('en-GB'));
   function portfolioRows() {
     return C.brands.map((b) => {
-      const ps = S.products.filter((p) => p.brand === b), pr = ps.map((p) => p.priceGBP).filter((x) => x != null), u = unitsOf(b), r = revenueOf(b), sku = skuOf(b), pa = bm(b).paSkus;
+      const ps = S.products.filter((p) => p.brand === b), pr = ps.map((p) => priceOf(p).v).filter((x) => x != null), u = unitsOf(b), r = revenueOf(b), sku = skuOf(b), pa = bm(b).paSkus;
       return { b, u, r, sku, pa, models: ps.length, pmin: pr.length ? Math.min(...pr) : null, pmax: pr.length ? Math.max(...pr) : null, rpb: u && r != null && !/low confidence/i.test(bm(b).dataNote || '') ? (r * 1e6) / u : null, depth: pa != null && sku ? pa / sku : null, low: /low confidence/i.test(bm(b).dataNote || ''), note: bm(b).dataNote || '', cats: bm(b).paCategories || '', year: bm(b).figuresYear || '', ver: bm(b).lastVerified || '' };
     });
   }
@@ -158,7 +169,7 @@
       <div class="metric">Brands with P&amp;A data<strong>${withPA.length}<small> of ${n}</small></strong></div></div>
       <div class="panel"><div class="chart-head"><div><h3>Portfolio and volumes</h3><div class="sub">How much each brand sells, how many models it lists, and how wide its parts and accessories (P&amp;A) range is.</div></div>
         <div class="source-actions"><button type="button" class="imagebtn" id="expBrands">Export to fill in</button><button type="button" class="imagebtn" id="impBrands2">Import filled file</button></div></div>
-        ${gloss([['Units / year', 'Bikes sold in a year. The small number under it is the year the figure is for.'], ['Revenue', 'Yearly sales in £ millions.'], ['Per bike', 'Revenue divided by units: a rough average price paid per bike, including accessories.'], ['SKUs', 'How many different bike models or variants the brand lists.'], ['Tracked', 'How many of its models we have in the Product matrix.'], ['P&amp;A products', 'Parts and accessories on sale: luggage, lights, locks, saddles and so on.'], ['P&amp;A per model', 'P&amp;A products divided by SKUs. Higher means a deeper accessory range for each bike.']])}
+        ${gloss([['Units / year', 'Bikes sold in a year. The small number under it is the year the figure is for.'], ['Revenue', 'Yearly sales in £ millions.'], ['Per bike', 'Revenue divided by units: a rough average price paid per bike, including accessories.'], ['SKUs', 'How many different bike models or variants the brand lists.'], ['Tracked', 'How many of its models we have in the Product Comparison.'], ['P&amp;A products', 'Parts and accessories on sale: luggage, lights, locks, saddles and so on.'], ['P&amp;A per model', 'P&amp;A products divided by SKUs. Higher means a deeper accessory range for each bike.']])}
         <div class="tbl-wrap"><table class="pm-table pf"><thead><tr>${th('b', 'Brand')}${th('u', 'Units / year', 'num')}${th('r', 'Revenue', 'num')}${th('rpb', 'Per bike', 'num')}${th('sku', 'SKUs', 'num')}${th('models', 'Tracked', 'num')}<th>Price range</th>${th('pa', 'P&amp;A products', 'num')}${th('depth', 'P&amp;A per model', 'num')}<th>P&amp;A offering</th>${th('ver', 'Verified')}</tr></thead><tbody>
         ${rows.map((r) => `<tr class="${isUs(r.b) ? 'is-us' : ''}"><td><button type="button" class="linkbtn" data-open="${esc(r.b)}">${esc(r.b)}</button> ${badges(r.b)}</td>
           <td class="num">${r.u != null ? `<div class="ubar"><i style="width:${Math.max(2, r.u / maxU * 100)}%"></i></div><strong>${num0(r.u)}</strong>${r.low ? `<span class="warn" title="${esc(r.note)}">claimed, low confidence</span>` : ''}${r.year ? `<small class="muted">${esc(r.year)}</small>` : ''}` : '<span class="muted">—</span>'}</td>
@@ -170,20 +181,44 @@
         </tbody></table></div>
         <div class="sub">${withU.length < n ? `${n - withU.length} brand${n - withU.length === 1 ? ' has' : 's have'} no volume figure yet. Most manufacturers do not publish units, so treat these as estimates and check the note and sources on each profile. ` : ''}Select <button type="button" class="linkbtn" id="loadStarter3">Load researched data</button> for what has been found so far, or <strong>Export to fill in</strong> to get a spreadsheet with every brand, add what you know, then select <strong>Import filled file</strong>. Empty cells are ignored, so nothing is overwritten by blanks.</div></div>`;
   }
-  const insMarkets = () => `<div class="panel-note">${gloss([['Number', 'How many countries the brand sells in, per region.'], ['we are here', 'Amber columns are regions where we also operate.'], ['Overlap', 'In how many of our regions the competitor also sells.'], ['NEW', 'A market-entry story in the last 90 days mentions that region. Read from the headline, so check it.']])}</div>${regionPanel(feedItems(), Date.now(), usName())}`;
-  function insActivity() {
-    const now = Date.now(), W = S.win, items = feedItems(), dg = S.digest;
-    const types = E.countsByType(items, C.brands, now, W, evtOf), trows = Object.keys(types).sort((a, b) => (isUs(b) - isUs(a)) || types[b].total - types[a].total || a.localeCompare(b));
-    const tot = {}; E.EVENT_TYPES.forEach((t) => { tot[t] = trows.reduce((s, b) => s + (types[b][t] || 0), 0); });
-    return `<div class="panel"><div class="chart-head"><div><h3>What changed, by brand and type</h3><div class="sub">Items in the last ${W} days. Select a number to open those items in News.</div></div></div>
-        ${gloss([['Type', 'What kind of news it is: launch, price change, partnership, funding, recall, market entry or other.'], ['Tags', 'Added automatically from the headline. Change one on a news item if it is wrong.']])}
-        <div class="tbl-wrap"><table class="pm-table"><thead><tr><th>Brand</th>${E.EVENT_TYPES.map((t) => `<th class="num"><span class="${chipCls(t)}">${esc(t)}</span></th>`).join('')}<th class="num">Total</th></tr></thead><tbody>
-        ${trows.map((b) => `<tr class="${isUs(b) ? 'is-us' : ''}"><td><button type="button" class="linkbtn" data-open="${esc(b)}">${esc(b)}</button> ${badges(b)}</td>${E.EVENT_TYPES.map((t) => `<td class="num">${types[b][t] ? `<button type="button" class="cellbtn" data-nb="${esc(b)}" data-nt="${esc(t)}">${types[b][t]}</button>` : '<span class="muted">·</span>'}</td>`).join('')}<td class="num"><strong>${types[b].total}</strong></td></tr>`).join('') || `<tr><td colspan="${E.EVENT_TYPES.length + 2}" class="muted">No items in the last ${W} days.</td></tr>`}
-        </tbody>${trows.length ? `<tfoot><tr><td>All brands</td>${E.EVENT_TYPES.map((t) => `<td class="num">${tot[t] || '·'}</td>`).join('')}<td class="num">${trows.reduce((s, b) => s + types[b].total, 0)}</td></tr></tfoot>` : ''}</table></div></div>
-      <div class="panel"><div class="chart-head"><div><h3>Weekly digest</h3><div class="sub">The same summary that is posted to Slack or emailed every Monday once a channel is set up (see the README).</div></div>
-        <div class="source-actions"><button type="button" class="imagebtn" id="dgPreview">${dg ? 'Refresh preview' : 'Preview digest'}</button>${dg ? '<button type="button" class="imagebtn" id="dgCopy">Copy</button><button type="button" class="imagebtn" id="dgSend">Send now</button>' : ''}</div></div>
-        ${dg ? `<pre class="dg">${esc(dg.text)}</pre><div class="sub">Delivery: Slack ${dg.channels.slack ? 'connected' : 'not set up'} · Email ${dg.channels.email ? 'connected' : 'not set up'}</div>` : '<div class="sub">Select Preview digest to see this week’s summary.</div>'}</div>`;
+  function digestPanel() {
+    const dg = S.digest;
+    return `<div class="panel"><div class="chart-head"><div><h3>Weekly digest</h3><div class="sub">The summary posted to Slack or emailed every Monday once a channel is set up (see the README).</div></div>
+      <div class="source-actions"><button type="button" class="imagebtn" id="dgPreview">${dg ? 'Refresh preview' : 'Preview digest'}</button>${dg ? '<button type="button" class="imagebtn" id="dgCopy">Copy</button><button type="button" class="imagebtn" id="dgSend">Send now</button>' : ''}</div></div>
+      ${dg ? `<pre class="dg">${esc(dg.text)}</pre><div class="sub">Delivery: Slack ${dg.channels.slack ? 'connected' : 'not set up'} · Email ${dg.channels.email ? 'connected' : 'not set up'}</div>` : '<div class="sub">Select Preview digest to see this week’s summary.</div>'}</div>`;
   }
+  /* =====================  MARKETS (flat world map + region table)  ===================== */
+  function mkBrands() {
+    const others = C.brands.filter((b) => !isUs(b));
+    return S.mkSel === 'all' ? others : S.mkSel === 'watch' ? others.filter((b) => bm(b).watch) : others.filter((b) => b === S.mkSel);
+  }
+  function insMarkets() {
+    if (!window.CIWorld) { withWorld(() => { if (S.insTab === 'markets') renderInsights(); }); return '<div class="panel"><div class="source-empty">Loading the map…</div></div>'; }
+    const W = window.CIWorld, us = usName(), pick = mkBrands(), mine = placeCountries(countriesOf(us)), single = pick.length === 1;
+    const by = new Map(); pick.forEach((b) => { placeCountries(countriesOf(b)).hit.forEach((t, key) => { if (!by.has(key)) by.set(key, { t, brands: [] }); by.get(key).brands.push(b); }); });
+    const keys = new Set([...by.keys(), ...mine.hit.keys()]), nameOf = (key) => (by.get(key) || { t: mine.hit.get(key) }).t.n;
+    const klass = (key) => { const n = (by.get(key) || { brands: [] }).brands.length; if (!n) return 'wm-us'; const c = single ? 2 : n >= 8 ? 4 : n >= 4 ? 3 : n >= 2 ? 2 : 1; return `wm-n${c}${mine.hit.has(key) ? ' wm-ov' : ''}`; };
+    const shape = (key) => {
+      const e = by.get(key) || { t: mine.hit.get(key), brands: [] }, t = e.t, ours = mine.hit.has(key), who = e.brands;
+      const tip = `${t.n}: ${who.length ? `${who.length} competitor${who.length === 1 ? '' : 's'} (${who.slice(0, 8).join(', ')}${who.length > 8 ? ', …' : ''})` : 'no competitor listed'}. ${ours ? 'We sell here.' : 'We do not sell here.'}`, c = klass(key) + (S.mkC === key ? ' wm-sel' : '');
+      return t.k === 'o' ? `<path class="${c}" data-ctry="${key}" d="${W.d[t.i]}"><title>${esc(tip)}</title></path>` : `<circle class="${c}" data-ctry="${key}" cx="${W.dots[t.i][1]}" cy="${W.dots[t.i][2]}" r="4.2"><title>${esc(tip)}</title></circle>`;
+    };
+    const both = [...by.keys()].filter((k) => mine.hit.has(k)).length, theirsOnly = by.size - both, oursOnly = [...mine.hit.keys()].filter((k) => !by.has(k)).length;
+    const withData = C.brands.filter((b) => !isUs(b) && countriesOf(b).length);
+    const rows = [...by.entries()].map(([key, e]) => ({ key, n: e.t.n, brands: e.brands, ours: mine.hit.has(key) })).filter((r) => !S.mkAbsent || !r.ours).sort((a, c) => c.brands.length - a.brands.length || a.n.localeCompare(c.n)).slice(0, 15);
+    const sel = S.mkC && keys.has(S.mkC) ? S.mkC : '', se = sel ? (by.get(sel) || { t: mine.hit.get(sel), brands: [] }) : null;
+    const opts = `<option value="all"${S.mkSel === 'all' ? ' selected' : ''}>All competitors (${C.brands.filter((b) => !isUs(b)).length})</option><option value="watch"${S.mkSel === 'watch' ? ' selected' : ''}>Watchlist only (${C.brands.filter((b) => bm(b).watch && !isUs(b)).length})</option>${withData.sort((a, b) => a.localeCompare(b)).map((b) => `<option${S.mkSel === b ? ' selected' : ''}>${esc(b)}</option>`).join('')}`;
+    return `<div class="metrics"><div class="metric">Countries with a competitor<strong>${by.size}</strong></div><div class="metric">Where we both sell<strong>${both}</strong></div><div class="metric">Competitors only, we are absent<strong>${theirsOnly}</strong></div><div class="metric">Only we sell here<strong>${oursOnly}</strong></div></div>
+      <div class="panel"><div class="chart-head"><div><h3>Where they sell</h3><div class="sub">${single ? esc(pick[0]) : `${pick.length} competitor${pick.length === 1 ? '' : 's'}`} against ${esc(us)}. Select a country for details.</div></div><div class="mk-ctl"><label class="cmp-bar">Show<select class="field" id="mkSel">${opts}</select></label></div></div>
+        ${gloss([['Brighter', single ? 'A country where the selected competitor sells.' : 'More competitors sell there: grey is 1, then lighter for 2 to 3, 4 to 7, and white for 8 or more.'], ['Blue', 'Only we sell there. Blue outline: we sell there too.'], ['Source', 'The countries listed on each profile under Regions. Countries are only as complete as those lists.']])}
+        <svg class="worldmap mk" viewBox="0 0 ${W.w} ${W.h}" role="img" aria-label="Flat world map of where ${esc(us)} and its competitors sell"><path class="wm-base" d="${W.d.join('')}"/>${[...keys].map(shape).join('')}</svg>
+        <div class="wm-legend"><span><i class="sw n1"></i>1 competitor</span>${single ? '' : '<span><i class="sw n2"></i>2 to 3</span><span><i class="sw n3"></i>4 to 7</span><span><i class="sw n4"></i>8 or more</span>'}<span><i class="sw us"></i>Only ${esc(us)}</span><span><i class="sw ov"></i>${esc(us)} also sells here</span><span class="muted">${withData.length} of ${C.brands.length - 1} competitors have countries listed</span></div>
+        ${se ? `<div class="mk-box"><b>${esc(se.t.n)}</b>: ${se.brands.length ? `${se.brands.length} competitor${se.brands.length === 1 ? '' : 's'} sell here.` : 'no competitor listed here.'} ${mine.hit.has(sel) ? `<b>${esc(us)} sells here too.</b>` : `<b>${esc(us)} does not sell here.</b>`}<div class="ctags">${mine.hit.has(sel) ? `<span class="us">${esc(us)}</span>` : ''}${se.brands.map((b) => `<span>${esc(b)}</span>`).join('')}</div></div>` : ''}</div>
+      <div class="panel"><div class="chart-head"><div><h3>Countries with the most competitors</h3><div class="sub">The top 15 for the selection above.</div></div><label class="chk"><input type="checkbox" id="mkAbsent"${S.mkAbsent ? ' checked' : ''}> Only countries where we do not sell</label></div>
+        <div class="tbl-wrap"><table class="pm-table"><thead><tr><th>Country</th><th class="num">Competitors</th><th>We sell here</th><th>Who</th></tr></thead><tbody>${rows.map((r) => `<tr><td><button type="button" class="linkbtn" data-ctry="${r.key}">${esc(r.n)}</button></td><td class="num">${r.brands.length}</td><td>${r.ours ? '<span class="us-pill">Yes</span>' : '<span class="muted">No</span>'}</td><td class="pa-cats">${esc(r.brands.slice(0, 8).join(', '))}${r.brands.length > 8 ? ', …' : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">No countries listed for this selection yet.</td></tr>'}</tbody></table></div></div>
+      ${regionPanel(feedItems(), Date.now(), us)}`;
+  }
+
   function insGaps() {
     return `<div class="panel-note">${gloss([['Coverage', 'How many of the ' + C.brands.length + ' brands have this fact filled in. Select a missing brand to fill it in, or export a spreadsheet and fill many at once.']])}<div class="source-actions" style="margin-bottom:12px"><button type="button" class="imagebtn" id="expBrands">Export brand template (CSV)</button><button type="button" class="imagebtn" id="impBrands2">Import filled file</button></div></div>${coveragePanel()}`;
   }
@@ -195,7 +230,7 @@
     const withData = C.brands.filter((b) => regionsOf(b)), without = C.brands.filter((b) => !regionsOf(b));
     const overlap = (b) => REG.filter((k) => usHas(k) && ((regionsOf(b) || {})[k] || []).length).length;
     const rows = [...new Set([us, ...withData, ...Object.keys(fresh)])].filter((b) => C.brands.includes(b)).sort((a, b) => (isUs(b) - isUs(a)) || overlap(b) - overlap(a) || a.localeCompare(b));
-    return `<div class="panel"><div class="chart-head"><div><h3>Region matrix</h3><div class="sub">Where each brand operates (number of countries listed). <span class="newtag">NEW</span> marks a market-entry story in the last 90 days that mentions the region, read from the headline, so check it. Amber columns are where we operate.</div></div></div>
+    return `<div class="panel"><div class="chart-head"><div><h3>Region matrix</h3><div class="sub">Where each brand operates (number of countries listed). <span class="newtag">NEW</span> marks a market-entry story in the last 90 days that mentions the region, read from the headline, so check it. Highlighted columns are where we operate.</div></div></div>
       <div class="tbl-wrap"><table class="pm-table"><thead><tr><th>Brand</th>${REG.map((k) => `<th class="num${usHas(k) ? ' us-col' : ''}">${k}${usHas(k) ? '<small>we are here</small>' : ''}</th>`).join('')}<th class="num">Overlap with us</th></tr></thead><tbody>
       ${rows.map((b) => { const r = regionsOf(b) || {}; return `<tr class="${isUs(b) ? 'is-us' : ''}"><td><button type="button" class="linkbtn" data-open="${esc(b)}">${esc(b)}</button> ${badges(b)}</td>${REG.map((k) => { const n = (r[k] || []).length, nw = fresh[b] && fresh[b].has(k); return `<td class="num${usHas(k) ? ' us-col' : ''}${nw && usHas(k) && !isUs(b) ? ' hot' : ''}" title="${esc((r[k] || []).join(', '))}">${n ? n : '<span class="muted">·</span>'}${nw ? ' <span class="newtag">NEW</span>' : ''}</td>`; }).join('')}<td class="num">${isUs(b) ? '—' : `${overlap(b)} of ${REG.filter(usHas).length}`}</td></tr>`; }).join('')}
       </tbody></table></div>
@@ -207,7 +242,7 @@
     const B = C.brands, bm2 = (f) => B.filter(f), miss = (have) => B.filter((b) => !have.includes(b));
     const T = [
       ['Category confirmed', bm2((b) => !!bm(b).category), 'Set on each profile; until then the card shows a starting guess.'],
-      ['Models with specs', bm2((b) => S.products.some((p) => p.brand === b)), 'Feeds the product matrix and price map.'],
+      ['Models with specs', bm2((b) => S.products.some((p) => p.brand === b)), 'Feeds the product comparison and price map.'],
       ['Revenue', bm2((b) => revenueOf(b) != null), 'Annual revenue in £m.', (b) => '£' + revenueOf(b).toLocaleString('en-GB') + 'm'],
       ['Annual units', bm2((b) => unitsOf(b) != null), 'Bikes sold per year.', (b) => unitsOf(b).toLocaleString('en-GB')],
       ['Portfolio size (SKUs)', bm2((b) => skuOf(b) != null), 'Number of models or SKUs.', (b) => String(skuOf(b))],
@@ -222,23 +257,22 @@
         <details class="gaps"><summary>Missing (${B.length - have.length})</summary><div class="chips">${gapChips(miss(have))}</div></details></div>`).join('')}</div></div>`;
   }
 
-  /* =====================  PRODUCT MATRIX  ===================== */
+  /* =====================  PRODUCT COMPARISON  ===================== */
   // Text specs, in the order and wording of brompton.com's Specification list.
   const SPEC_GROUPS = [
     ['Frame and fork', [['material', 'Material'], ['mainFrame', 'Main frame'], ['rearFrame', 'Rear frame'], ['fork', 'Fork']]],
     ['Contact points', [['grips', 'Grips'], ['seatpost', 'Seatpost'], ['saddle', 'Saddle'], ['seatclamp', 'Seat clamp'], ['hingeClamps', 'Hinge clamps'], ['pedals', 'Pedals']]],
     ['Drivetrain', [['gears', 'Speed'], ['drivetrain', 'Drivetrain'], ['chainset', 'Chainset'], ['bottomBracket', 'Bottom bracket'], ['headset', 'Headset'], ['shifters', 'Shifters'], ['sprockets', 'Sprockets'], ['derailleur', 'Derailleur']]],
     ['Wheels and tyres', [['rearWheel', 'Rear wheel'], ['frontWheel', 'Front wheel'], ['tyres', 'Tyres'], ['tubes', 'Tubes'], ['rollerWheels', 'Roller wheels']]],
-    ['Brakes and equipment', [['brakes', 'Brakes'], ['mudguards', 'Mudguards'], ['lighting', 'Lighting'], ['rack', 'Rack'], ['frontCarrier', 'Front carrier']]],
-    ['Fit and warranty', [['riderHeight', 'Rider height'], ['maxLoadKg', 'Max load (kg)'], ['warranty', 'Warranty']]]
+    ['Brakes and equipment', [['brakes', 'Brakes'], ['mudguards', 'Mudguards'], ['lighting', 'Lighting'], ['rack', 'Rack'], ['frontCarrier', 'Front carrier']]]
   ];
   const SPEC_KEYS = SPEC_GROUPS.flatMap((g) => g[1].map((x) => x[0]));
-  const COLS = ['brand', 'model', 'category', 'priceGBP', 'priceNote', 'colours', 'handlebars', 'weightKg', 'foldH', 'foldW', 'foldL', 'wheelIn', ...SPEC_KEYS.filter((k) => k !== 'gears'), 'gears', 'motor', 'batteryWh', 'rangeKm', 'launch', 'url', 'sourceUrl', 'lastVerified', 'notes'];
+  const COLS = ['brand', 'model', 'category', 'priceGBP', 'priceEUR', 'priceUSD', 'priceNote', 'colours', 'handlebars', 'weightKg', 'foldH', 'foldW', 'foldL', 'wheelIn', ...SPEC_KEYS.filter((k) => k !== 'gears'), 'gears', 'motor', 'batteryWh', 'rangeKm', 'launch', 'url', 'sourceUrl', 'lastVerified', 'notes'];
   const COLS_ALIAS = { foldD: 'foldL', speed: 'gears' };
   const txt = (k, label) => ({ k, label, get: (p) => p[k], fmt: (v) => v });
   const ROWS = [
     { sec: 'Overview' },
-    { k: 'priceGBP', label: 'Price', get: (p) => p.priceGBP, fmt: gbp, dir: 'low', note: (p) => p.priceNote },
+    { k: 'priceGBP', label: 'Price', get: (p) => priceOf(p).v, fmt: gbp, dir: 'low', pre: (p) => (priceOf(p).conv ? '≈ ' : ''), note: (p) => [priceOf(p).conv, p.priceNote].filter(Boolean).join('. ') },
     txt('colours', 'Colours'), txt('handlebars', 'Handlebars'),
     { k: 'launch', label: 'Launch', get: (p) => p.launch, fmt: (v) => v },
     { sec: 'Size and weight' },
@@ -258,7 +292,7 @@
   ];
   // Share of the 35 comparable specs that have a value (the Brompton page's 30 spec rows, plus price, weight, folded size, wheel size).
   const CORE = ['priceGBP', 'weightKg', 'wheelIn', ...SPEC_KEYS];
-  const filled = (p) => CORE.filter((k) => p[k] != null && p[k] !== '').length + (fold(p) ? 1 : 0);
+  const filled = (p) => CORE.filter((k) => (k === 'priceGBP' ? priceOf(p).v != null : p[k] != null && p[k] !== '')).length + (fold(p) ? 1 : 0);
   const fillPct = (p) => Math.round((filled(p) / (CORE.length + 1)) * 100);
   const prodById = (id) => S.products.find((p) => p.id === id);
   const prodName = (p) => `${p.brand} ${p.model}`;
@@ -278,21 +312,32 @@
   }
   /* =====================  PRODUCT COMPARE (Apple-style: sticky model cards, then large spec sections)  ===================== */
   const MAXCMP = 6; // us + up to 5 competitors
-  function slotSelect(i, cur) {
-    const ours = i === 0, taken = new Set([S.cmp.us, ...S.cmp.others]);
-    const list = S.products.filter((p) => (ours ? isUs(p.brand) : !isUs(p.brand)) && (p.id === cur || !taken.has(p.id)));
-    const byB = {}; list.forEach((p) => { (byB[p.brand] = byB[p.brand] || []).push(p); });
-    const opts = Object.keys(byB).sort().map((b) => `<optgroup label="${esc(b)}">${byB[b].map((p) => `<option value="${esc(p.id)}"${p.id === cur ? ' selected' : ''}>${esc(p.model)}</option>`).join('')}</optgroup>`).join('');
-    return `<select class="field cmp-sel" data-slot="${i}" aria-label="${ours ? 'Our model' : 'Competitor model ' + i}">${cur ? '' : '<option value="">Choose a model</option>'}${opts}${!ours && cur ? '<option value="">Remove from comparison</option>' : ''}</select>`;
-  }
   function headCard(p, i) {
-    if (!p) return `<div class="ap-card empty"><div class="ap-pic"><span>+</span></div><div class="ap-name muted">${i === 0 ? 'No model of ours yet' : 'Add a model'}</div>${slotSelect(i, '')}</div>`;
+    if (!p) return `<div class="ap-card empty"><button type="button" class="ap-add" data-pick="${i}"><b>+</b><span>${i === 0 ? 'Choose our model' : 'Add a model'}</span></button></div>`;
     const pic = C.pic(p.brand), us = isUs(p.brand);
-    return `<div class="ap-card${us ? ' is-us' : ''}"><div class="ap-pic">${pic ? `<img src="${esc(pic)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : '<span>🚲</span>'}</div>
+    return `<div class="ap-card${us ? ' is-us' : ''}"><div class="ap-pic">${pic ? `<img src="${esc(pic)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : '<span>🚲</span>'}${i > 0 ? `<button type="button" class="ap-x" data-rm="${esc(p.id)}" aria-label="Remove ${esc(p.model)} from the comparison" title="Remove from the comparison">×</button>` : ''}</div>
       <div class="ap-brand"><button type="button" class="linkbtn" data-open="${esc(p.brand)}">${esc(p.brand)}</button> ${us ? '<span class="pm-us">US</span>' : ''}</div>
-      <div class="ap-name">${esc(p.model)}</div><div class="ap-price">${p.priceGBP != null ? `From ${gbp(p.priceGBP)}` : '<span class="muted">No price yet</span>'}</div>
+      <div class="ap-name">${esc(p.model)}</div><div class="ap-price">${priceOf(p).v != null ? `From ${priceTxt(p)}` : '<span class="muted">No price yet</span>'}</div>
       <div class="fillbar" title="${filled(p)} of ${CORE.length + 1} comparable specs filled in"><i style="width:${fillPct(p)}%"></i></div><div class="muted ap-fill">${fillPct(p)}% of specs filled</div>
-      ${slotSelect(i, p.id)}<div class="ap-act"><button type="button" class="linkbtn" data-edit="${esc(p.id)}">Edit</button></div></div>`;
+      <div class="ap-act"><button type="button" class="linkbtn" data-pick="${i}">Change model</button><button type="button" class="linkbtn" data-edit="${esc(p.id)}">Edit</button></div></div>`;
+  }
+  /* Picker: a searchable list, opened from the + card or Change model */
+  function pickerHtml() {
+    const slot = S.pickSlot, ours = slot === 0, cur = [S.cmp.us, ...S.cmp.others][slot], taken = new Set([S.cmp.us, ...S.cmp.others]), q = S.pickQ.toLowerCase();
+    const list = S.products.filter((p) => (ours ? isUs(p.brand) : !isUs(p.brand)) && (p.id === cur || !taken.has(p.id)) && `${p.brand} ${p.model}`.toLowerCase().includes(q));
+    const byB = {}; list.forEach((p) => { (byB[p.brand] = byB[p.brand] || []).push(p); });
+    return Object.keys(byB).sort().map((b) => `<div class="pick-g">${esc(b)}</div>${byB[b].map((p) => `<button type="button" class="pick-i" data-choose="${esc(p.id)}"><span><strong>${esc(p.model)}</strong>${p.id === cur ? ' <span class="muted">(current)</span>' : ''}</span><small>${esc(priceTxt(p))} · ${fillPct(p)}% of specs</small></button>`).join('')}`).join('') || `<div class="source-empty">${S.products.length ? 'No models match.' : 'No models yet.'} <button type="button" class="linkbtn" data-add-from-pick>Add a model</button></div>`;
+  }
+  function openPicker(slot) {
+    S.pickSlot = slot; S.pickQ = '';
+    let d = $('#pmPick');
+    if (!d) { d = document.createElement('dialog'); d.id = 'pmPick'; d.innerHTML = '<div class="mh"><strong id="pickTitle"></strong><button type="button" data-close aria-label="Close">×</button></div><div class="mb"><input class="field" id="pickQ" placeholder="Search models or brands" autocomplete="off"><div id="pickList"></div></div>'; document.body.appendChild(d); d.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) d.close(); }); }
+    $('#pickTitle').textContent = slot === 0 ? 'Choose our model' : 'Add a competitor model'; $('#pickQ').value = ''; $('#pickList').innerHTML = pickerHtml(); d.showModal(); $('#pickQ').focus();
+  }
+  function choose(id) {
+    const slot = S.pickSlot, o = S.cmp.others;
+    if (slot === 0) S.cmp.us = id; else if (slot - 1 < o.length) o[slot - 1] = id; else o.push(id);
+    S.cmp.others = [...new Set(o)]; fixCmp(); $('#pmPick').close(); renderMatrix();
   }
   function matrixTable() {
     const ids = [S.cmp.us, ...S.cmp.others], cols = ids.map(prodById).filter(Boolean), us = prodById(S.cmp.us);
@@ -314,7 +359,7 @@
           const d = Math.round((v - uv) * 100) / 100;
           if (d !== 0) delta = `<small class="dl${(r.dir === 'low' ? d < 0 : d > 0) ? ' adv' : ''}" title="Compared with ${esc(prodName(us))}">${d > 0 ? '+' : '−'}${r.fmt(Math.abs(d))} vs us</small>`;
         }
-        return `<div class="ap-c${isUs(p.brand) ? ' is-us' : ''}${best != null && v === best ? ' best' : ''}"><div class="ap-v">${ok ? (r.html ? r.html(v) : esc(r.fmt(v))) : '<span class="muted">—</span>'}</div>${r.note && r.note(p) ? `<small class="muted">${esc(r.note(p))}</small>` : ''}${delta}</div>`;
+        return `<div class="ap-c${isUs(p.brand) ? ' is-us' : ''}${best != null && v === best ? ' best' : ''}"><div class="ap-v">${ok ? (r.html ? r.html(v) : esc((r.pre ? r.pre(p) : '') + r.fmt(v))) : '<span class="muted">—</span>'}</div>${r.note && r.note(p) ? `<small class="muted">${esc(r.note(p))}</small>` : ''}${delta}</div>`;
       }).join('')}</div></div>`;
     });
     flush();
@@ -324,75 +369,109 @@
   function modelsTable() {
     const q = S.q.toLowerCase(), k = S.sort.k, d = S.sort.d;
     const list = S.products.filter((p) => !q || `${p.brand} ${p.model} ${p.category}`.toLowerCase().includes(q)).sort((a, b) => {
-      const x = k === 'vol' ? vol(a) : k === 'fill' ? fillPct(a) : a[k], y = k === 'vol' ? vol(b) : k === 'fill' ? fillPct(b) : b[k];
+      const x = k === 'vol' ? vol(a) : k === 'fill' ? fillPct(a) : k === 'priceGBP' ? priceOf(a).v : a[k], y = k === 'vol' ? vol(b) : k === 'fill' ? fillPct(b) : k === 'priceGBP' ? priceOf(b).v : b[k];
       if (x == null || x === '') return y == null || y === '' ? 0 : 1; if (y == null || y === '') return -1;
       return (typeof x === 'number' ? x - y : String(x).localeCompare(String(y))) * d || (isUs(b.brand) - isUs(a.brand));
     });
     const th = (key, label, cls) => `<th class="${cls || ''}"><button type="button" class="sortbtn" data-sort="${key}">${label}${S.sort.k === key ? (S.sort.d > 0 ? ' ▲' : ' ▼') : ''}</button></th>`;
     return `<table class="pm-table"><thead><tr>${th('brand', 'Brand')}${th('model', 'Model')}${th('category', 'Category')}${th('priceGBP', 'Price', 'num')}${th('weightKg', 'Weight', 'num')}${th('vol', 'Folded', 'num')}${th('batteryWh', 'Battery', 'num')}${th('rangeKm', 'Range', 'num')}${th('launch', 'Launch')}${th('lastVerified', 'Verified')}${th('fill', 'Specs', 'num')}<th></th></tr></thead><tbody>
-      ${list.map((p) => `<tr class="${isUs(p.brand) ? 'is-us' : ''}"><td><button type="button" class="linkbtn" data-open="${esc(p.brand)}">${esc(p.brand)}</button></td><td>${esc(p.model)}</td><td>${esc(p.category || '—')}</td><td class="num">${gbp(p.priceGBP)}</td><td class="num">${p.weightKg != null ? p.weightKg + ' kg' : '—'}</td><td class="num">${vol(p) != null ? Math.round(vol(p)) + ' L' : '—'}</td><td class="num">${p.batteryWh != null ? p.batteryWh + ' Wh' : '—'}</td><td class="num">${p.rangeKm != null ? p.rangeKm + ' km' : '—'}</td><td>${plain(p.launch)}</td><td>${p.lastVerified ? esc(p.lastVerified) : '—'}</td><td class="num">${fillPct(p)}%</td><td class="acts"><button type="button" class="linkbtn" data-cmp="${esc(p.id)}">Compare</button><button type="button" class="linkbtn" data-edit="${esc(p.id)}">Edit</button></td></tr>`).join('') || '<tr><td colspan="11" class="muted">No models match.</td></tr>'}
+      ${list.map((p) => `<tr class="${isUs(p.brand) ? 'is-us' : ''}"><td><button type="button" class="linkbtn" data-open="${esc(p.brand)}">${esc(p.brand)}</button></td><td>${esc(p.model)}</td><td>${esc(p.category || '—')}</td><td class="num">${priceTxt(p)}</td><td class="num">${p.weightKg != null ? p.weightKg + ' kg' : '—'}</td><td class="num">${vol(p) != null ? Math.round(vol(p)) + ' L' : '—'}</td><td class="num">${p.batteryWh != null ? p.batteryWh + ' Wh' : '—'}</td><td class="num">${p.rangeKm != null ? p.rangeKm + ' km' : '—'}</td><td>${plain(p.launch)}</td><td>${p.lastVerified ? esc(p.lastVerified) : '—'}</td><td class="num">${fillPct(p)}%</td><td class="acts"><button type="button" class="linkbtn" data-cmp="${esc(p.id)}">Compare</button><button type="button" class="linkbtn" data-edit="${esc(p.id)}">Edit</button></td></tr>`).join('') || '<tr><td colspan="11" class="muted">No models match.</td></tr>'}
       </tbody></table>`;
   }
-  /* =====================  PRICE VS SPEC CHART (one line per brand, labels on the right, Pareto line)  ===================== */
-  // dir: which way is better. The Pareto line joins models that no other visible model beats on both price and this spec.
-  const YAX = {
-    weightKg: ['Weight (kg)', (p) => p.weightKg, (v) => v + ' kg', 'low'],
-    vol: ['Folded volume (L)', vol, (v) => Math.round(v) + ' L', 'low'],
-    batteryWh: ['Battery (Wh)', (p) => p.batteryWh, (v) => v + ' Wh', 'high'],
-    rangeKm: ['Range (km)', (p) => p.rangeKm, (v) => v + ' km', 'high']
-  };
-  const PALETTE = ['#6aa7ff', '#2fbf8f', '#c792ea', '#ff7a6b', '#4dd0e1', '#d6c85a', '#ff9bd2', '#9ccc65', '#b0bec5', '#f78fb3', '#80cbc4', '#ffb74d'];
-  const brandColor = (b) => (isUs(b) ? '#f2b13c' : PALETTE[[...b].reduce((a, c) => a + c.charCodeAt(0), 0) % PALETTE.length]);
+  /* =====================  CHARTS  ===================== */
+  // Palette: Brompton is #002fa7. Everyone else uses #FFFFFF, #DBDBDB, #F6F6F6 and #707070, told apart by line style as well as shade.
+  const US_BLUE = '#002fa7', PAL = ['#FFFFFF', '#DBDBDB', '#707070', '#F6F6F6'], DASH = ['', '7 4', '2 3', '11 3 2 3'];
   const PRICE_TICKS = [100, 250, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000, 7500, 10000, 15000];
+  const AXES = {
+    price: { label: 'Price (£)', get: (p) => priceOf(p).v, fmt: (v) => gbp(v) },
+    weightKg: { label: 'Weight (kg)', get: (p) => p.weightKg, fmt: (v) => v + ' kg' },
+    vol: { label: 'Folded volume (L)', get: (p) => vol(p), fmt: (v) => Math.round(v) + ' L' },
+    batteryWh: { label: 'Battery (Wh)', get: (p) => p.batteryWh, fmt: (v) => v + ' Wh' }
+  };
+  const VIEWS = [
+    { id: 'ladder', label: 'Price ladder', what: 'One row per brand. The line runs from its cheapest to its dearest model and each dot is a model. The blue band is our own price range, so you can see who sits inside it.' },
+    { id: 'pw', label: 'Price vs weight', x: 'price', y: 'weightKg', lines: true, what: 'Higher on the chart means a heavier bike. Models to the left cost less; models lower down are lighter.' },
+    { id: 'pv', label: 'Price vs folded size', x: 'price', y: 'vol', lines: true, what: 'Higher means a bigger folded package; lower means it packs smaller.' },
+    { id: 'port', label: 'Portability map (weight vs folded size)', x: 'weightKg', y: 'vol', size: 'price', what: 'Bottom-left is best: lighter and smaller when folded. A bigger bubble means a higher price.' },
+    { id: 'pb', label: 'E-bikes: price vs battery', x: 'price', y: 'batteryWh', lines: true, what: 'Higher means a bigger battery. Only electric models with a stated battery size appear. Range is left out on purpose: makers measure it differently, so it does not compare fairly.' }
+  ];
+  const brandStyle = (b) => {
+    if (isUs(b)) return { c: US_BLUE, dash: '', us: true };
+    const names = [...new Set(S.products.map((p) => p.brand))].filter((x) => !isUs(x)).sort(), i = Math.max(0, names.indexOf(b));
+    return { c: PAL[i % 4], dash: DASH[Math.floor(i / 4) % 4], us: false };
+  };
   function chartData() {
-    const [yl, yg, yf, dir] = YAX[S.cy];
-    const all = S.products.filter((p) => typeof p.priceGBP === 'number' && p.priceGBP > 0 && typeof yg(p) === 'number');
+    const V = VIEWS.find((v) => v.id === S.cview) || VIEWS[0], need = V.id === 'ladder' ? ['price'] : [...new Set([V.x, V.y, V.size].filter(Boolean))];
+    const okv = (v) => typeof v === 'number' && isFinite(v) && v > 0;
+    const rows = S.products.map((p) => { const o = { p, conv: priceOf(p).conv }; need.forEach((k) => { o[k] = AXES[k].get(p); }); return o; });
+    const all = rows.filter((o) => need.every((k) => okv(o[k])));
     const names = [...new Set(S.products.map((p) => p.brand))].sort((a, b) => (isUs(b) - isUs(a)) || a.localeCompare(b));
-    return { yl, yg, yf, dir, all, names, plotted: new Set(all.map((p) => p.brand)) };
+    const nm = (k) => AXES[k].label.replace(/ \(.*/, '').toLowerCase();
+    const why = (b) => { const mine = rows.filter((o) => o.p.brand === b), lack = need.filter((k) => !mine.some((o) => okv(o[k]))); return lack.length ? 'No model has ' + lack.map(nm).join(' or ') + ' yet' : 'No single model has ' + need.map(nm).join(' and '); };
+    return { V, need, all, names, why, plotted: new Set(all.map((o) => o.p.brand)), anyConv: all.some((o) => o.conv) };
   }
-  function chartSvg(D) {
-    const { yl, yg, yf, dir } = D, pts = D.all.filter((p) => !S.chHide.has(p.brand));
-    if (pts.length < 2) return `<div class="source-empty">Show at least two models that have both a price and “${esc(yl)}” to draw the chart. Models without both values are left out. Load the researched data or add models in the Product matrix.</div>`;
-    const W = 1000, H = 540, L = 66, R = 178, T = 18, B = 60, log = S.cscale === 'log';
-    const xs = pts.map((p) => p.priceGBP), xmin = Math.min(...xs), xmax = Math.max(...xs);
-    let x0, x1, xt;
-    if (log) { const lo = Math.max(1, xmin * 0.8), hi = xmax * 1.25; xt = PRICE_TICKS.filter((t) => t >= lo && t <= hi); if (xt.length < 2) xt = [Math.round(lo), Math.round(hi)]; x0 = Math.log(Math.min(lo, xt[0])); x1 = Math.log(Math.max(hi, xt[xt.length - 1])); }
-    else { xt = niceTicks(0, xmax * 1.08); x0 = xt[0]; x1 = xt[xt.length - 1]; }
-    const yt = niceTicks(0, Math.max(...pts.map((p) => yg(p))) * 1.08), y0 = yt[0], y1 = yt[yt.length - 1];
-    const X = (v) => L + ((log ? Math.log(v) : v) - x0) / (x1 - x0) * (W - L - R), Y = (v) => H - B - (v - y0) / (y1 - y0) * (H - T - B);
-    const by = {}; pts.forEach((p) => { (by[p.brand] = by[p.brand] || []).push(p); });
-    const series = Object.keys(by).map((b) => ({ b, list: by[b].sort((a, c) => a.priceGBP - c.priceGBP) }));
-    // right-hand labels, spread so they never overlap
-    const lab = series.map((s) => { const last = s.list[s.list.length - 1]; return { s, px: X(last.priceGBP), py: Y(yg(last)), ly: Y(yg(last)) }; }).sort((a, c) => a.ly - c.ly);
-    for (let i = 1; i < lab.length; i++) if (lab[i].ly - lab[i - 1].ly < 21) lab[i].ly = lab[i - 1].ly + 21;
-    const over = lab.length ? lab[lab.length - 1].ly - (H - B - 6) : 0; if (over > 0) lab.forEach((l) => { l.ly -= over; });
-    let par = '';
-    if (S.pareto) {
-      const sorted = pts.slice().sort((a, c) => a.priceGBP - c.priceGBP || (dir === 'low' ? yg(a) - yg(c) : yg(c) - yg(a))), fr = []; let best = null;
-      sorted.forEach((p) => { const v = yg(p); if (best == null || (dir === 'low' ? v < best : v > best)) { fr.push(p); best = v; } });
-      par = `<polyline class="pareto" points="${fr.map((p) => `${X(p.priceGBP).toFixed(1)},${Y(yg(p)).toFixed(1)}`).join(' ')}"/>${fr.map((p) => `<circle class="pareto-dot" cx="${X(p.priceGBP).toFixed(1)}" cy="${Y(yg(p)).toFixed(1)}" r="9"/>`).join('')}`;
+  const chartEmpty = '<div class="source-empty">Nothing to draw with the brands switched on. Turn some brands back on in the list, or add the missing specs in the Product Comparison.</div>';
+  function xAxis(vals, logx) {
+    const mn = Math.min(...vals), mx = Math.max(...vals);
+    if (logx) { const lo = Math.max(1, mn * 0.8), hi = mx * 1.25; let t = PRICE_TICKS.filter((v) => v >= lo && v <= hi); if (t.length < 2) t = [Math.round(lo), Math.round(hi)]; return { t, a: Math.log(Math.min(lo, t[0])), b: Math.log(Math.max(hi, t[t.length - 1])) }; }
+    const t = niceTicks(0, mx * 1.08); return { t, a: t[0], b: t[t.length - 1] };
+  }
+  const ptTitle = (o, extra) => `${prodName(o.p)}: ${priceTxt(o.p)}${o.weightKg ? ', ' + o.weightKg + ' kg' : ''}${o.vol ? ', ' + Math.round(o.vol) + ' L folded' : ''}${o.batteryWh ? ', ' + o.batteryWh + ' Wh' : ''}${o.conv ? ' (' + o.conv + ')' : ''}. Select to add to the comparison.${extra || ''}`;
+  function dotG(o, cx, cy, r, st, sel) {
+    const hollow = !!o.conv;
+    return `<g class="dot" data-cmp="${esc(o.p.id)}">${sel ? `<circle class="sel" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(r + 4).toFixed(1)}"/>` : ''}<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="${hollow ? '#000' : st.c}" stroke="${hollow ? st.c : st.us ? '#fff' : '#000'}" stroke-width="${hollow ? 2.4 : st.us ? 2 : 1.4}"/><title>${esc(ptTitle(o))}</title></g>`;
+  }
+  function scatterSvg(D) {
+    const V = D.V, ay = AXES[V.y], ax = AXES[V.x], pts = D.all.filter((o) => !S.chHide.has(o.p.brand));
+    if (!pts.length) return chartEmpty;
+    const W = 1000, H = 540, L = 72, R = V.lines ? 180 : 70, T = 26, B = 64, logx = V.x === 'price' && S.cscale === 'log';
+    const xa = xAxis(pts.map((o) => o[V.x]), logx), yt = niceTicks(0, Math.max(...pts.map((o) => o[V.y])) * 1.1), y0 = yt[0], y1 = yt[yt.length - 1];
+    const X = (v) => L + ((logx ? Math.log(v) : v) - xa.a) / (xa.b - xa.a) * (W - L - R), Y = (v) => H - B - (v - y0) / (y1 - y0) * (H - T - B);
+    const rad = V.size ? (() => { const a = pts.map((o) => o[V.size]), lo = Math.min(...a), hi = Math.max(...a); return (v) => 6 + 16 * Math.sqrt((v - lo) / ((hi - lo) || 1)); })() : null;
+    const sel = new Set([S.cmp.us, ...S.cmp.others]), by = {}; pts.forEach((o) => { (by[o.p.brand] = by[o.p.brand] || []).push(o); });
+    const series = Object.keys(by).sort((a, b) => isUs(a) - isUs(b)).map((b) => ({ b, st: brandStyle(b), list: by[b].sort((a, c) => a[V.x] - c[V.x]) }));
+    let lead = '', labs = '';
+    if (V.lines) {
+      const lab = series.map((s) => { const l = s.list[s.list.length - 1]; return { s, px: X(l[V.x]), py: Y(l[V.y]), ly: Y(l[V.y]) }; }).sort((a, c) => a.ly - c.ly);
+      for (let i = 1; i < lab.length; i++) if (lab[i].ly - lab[i - 1].ly < 21) lab[i].ly = lab[i - 1].ly + 21;
+      const over = lab.length ? lab[lab.length - 1].ly - (H - B - 6) : 0; if (over > 0) lab.forEach((l) => { l.ly -= over; });
+      lead = lab.map((l) => `<path class="lead" d="M${l.px.toFixed(1)} ${l.py.toFixed(1)} L${W - R + 8} ${l.ly.toFixed(1)}" stroke="${l.s.st.c}"/>`).join('');
+      labs = lab.map((l) => `<text class="blab${l.s.st.us ? ' us' : ''}" x="${W - R + 14}" y="${(l.ly + 4).toFixed(1)}" fill="${l.s.st.us ? '#fff' : l.s.st.c}">${esc(l.s.b)}</text>`).join('');
     }
-    const sel = new Set([S.cmp.us, ...S.cmp.others]);
-    return `<svg class="chart2" viewBox="0 0 ${W} ${H}" role="img" aria-label="Price against ${esc(yl)}, one line per brand">
-      ${yt.map((v) => `<line class="gl" x1="${L}" x2="${W - R}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"/><text class="al" x="${L - 10}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${esc(yf(v).replace(/ (kg|L|Wh|km)$/, ''))}</text>`).join('')}
-      ${xt.map((v) => `<text class="al" x="${X(v).toFixed(1)}" y="${H - B + 22}" text-anchor="middle">${esc(gbp(v))}</text><line class="tk" x1="${X(v).toFixed(1)}" x2="${X(v).toFixed(1)}" y1="${H - B}" y2="${H - B + 5}"/>`).join('')}
+    const body = series.map((s) => `<g class="ser${s.st.us ? ' us' : ''}">${V.lines && s.list.length > 1 ? `${s.st.us ? `<polyline points="${s.list.map((o) => `${X(o[V.x]).toFixed(1)},${Y(o[V.y]).toFixed(1)}`).join(' ')}" stroke="#fff" stroke-width="6" fill="none" opacity=".9"/>` : ''}<polyline points="${s.list.map((o) => `${X(o[V.x]).toFixed(1)},${Y(o[V.y]).toFixed(1)}`).join(' ')}" stroke="${s.st.c}" stroke-width="${s.st.us ? 3.4 : 1.8}" stroke-dasharray="${s.st.dash}" fill="none"/>` : ''}${s.list.map((o) => dotG(o, X(o[V.x]), Y(o[V.y]), rad ? rad(o[V.size]) : s.st.us ? 7 : 5, s.st, sel.has(o.p.id))).join('')}${V.lines ? '' : s.list.map((o) => `<text class="dlab" x="${(X(o[V.x]) + (rad ? rad(o[V.size]) : 6) + 5).toFixed(1)}" y="${(Y(o[V.y]) + 4).toFixed(1)}">${esc(o.p.model.length > 24 ? o.p.model.slice(0, 23) + '…' : o.p.model)}</text>`).join('')}</g>`).join('');
+    return `<svg class="chart2" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(V.label)}">
+      ${yt.map((v) => `<line class="gl" x1="${L}" x2="${W - R}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"/><text class="al" x="${L - 10}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${esc(ay.fmt(v).replace(/ (kg|L|Wh)$/, ''))}</text>`).join('')}
+      ${xa.t.map((v) => `<line class="tk" x1="${X(v).toFixed(1)}" x2="${X(v).toFixed(1)}" y1="${H - B}" y2="${H - B + 5}"/><text class="al" x="${X(v).toFixed(1)}" y="${H - B + 22}" text-anchor="middle">${esc(V.x === 'price' ? gbp(v) : String(v))}</text>`).join('')}
       <line class="ax" x1="${L}" x2="${W - R}" y1="${H - B}" y2="${H - B}"/>
-      <text class="at" x="${L}" y="${T - 4}" text-anchor="start">${esc(yl)}${dir === 'low' ? ' · lower is better' : ' · higher is better'}</text>
-      <text class="at" x="${(L + W - R) / 2}" y="${H - 10}" text-anchor="middle">Price per model (£${log ? ', log scale' : ''})</text>
-      ${par}
-      ${lab.map((l) => { const c = brandColor(l.s.b), lastX = l.px; return `<path class="lead" d="M${lastX.toFixed(1)} ${l.py.toFixed(1)} L${(W - R + 8).toFixed(1)} ${l.ly.toFixed(1)}" stroke="${c}"/>`; }).join('')}
-      ${series.map((s) => { const c = brandColor(s.b), us = isUs(s.b); return `<g class="ser${us ? ' us' : ''}">${s.list.length > 1 ? `<polyline points="${s.list.map((p) => `${X(p.priceGBP).toFixed(1)},${Y(yg(p)).toFixed(1)}`).join(' ')}" stroke="${c}" stroke-width="${us ? 2.6 : 1.7}" fill="none"/>` : ''}${s.list.map((p) => `<g class="dot${sel.has(p.id) ? ' on' : ''}" data-cmp="${esc(p.id)}"><circle cx="${X(p.priceGBP).toFixed(1)}" cy="${Y(yg(p)).toFixed(1)}" r="${us ? 6.5 : 4.8}" fill="${c}"/><title>${esc(prodName(p))}: ${esc(gbp(p.priceGBP))}, ${esc(yf(yg(p)))}. Select to add to the comparison.</title></g>`).join('')}</g>`; }).join('')}
-      ${lab.map((l) => `<text class="blab${isUs(l.s.b) ? ' us' : ''}" x="${W - R + 14}" y="${(l.ly + 4).toFixed(1)}" fill="${brandColor(l.s.b)}">${esc(l.s.b)}</text>`).join('')}</svg>`;
+      <text class="at" x="${L}" y="${T - 8}">${esc(ay.label)}</text>
+      <text class="at" x="${(L + W - R) / 2}" y="${H - 12}" text-anchor="middle">${esc(ax.label)}${logx ? ', log scale' : ''}</text>
+      ${lead}${body}${labs}</svg>`;
+  }
+  function ladderSvg(D) {
+    const pts = D.all.filter((o) => !S.chHide.has(o.p.brand)); if (!pts.length) return chartEmpty;
+    const by = {}; pts.forEach((o) => { (by[o.p.brand] = by[o.p.brand] || []).push(o); });
+    const rows = Object.keys(by).map((b) => { const l = by[b].sort((a, c) => a.price - c.price); return { b, st: brandStyle(b), l, min: l[0].price, max: l[l.length - 1].price }; }).sort((a, c) => (isUs(c.b) - isUs(a.b)) || a.min - c.min);
+    const W = 1000, L = 200, R = 190, T = 30, RH = 40, H = T + rows.length * RH + 56, logx = S.cscale === 'log', xa = xAxis(pts.map((o) => o.price), logx);
+    const X = (v) => L + ((logx ? Math.log(v) : v) - xa.a) / (xa.b - xa.a) * (W - L - R), usr = rows.find((r) => r.st.us), sel = new Set([S.cmp.us, ...S.cmp.others]), by0 = T + rows.length * RH;
+    return `<svg class="chart2" viewBox="0 0 ${W} ${H}" role="img" aria-label="Price ladder, one row per brand">
+      ${usr ? `<rect class="band" x="${(X(usr.min) - 5).toFixed(1)}" y="${T - 14}" width="${Math.max(10, X(usr.max) - X(usr.min) + 10).toFixed(1)}" height="${by0 - T + 14}" rx="6"/><text class="pr" x="${(X(usr.min) - 5).toFixed(1)}" y="${T - 20}">Our range ${esc(gbp(usr.min))} to ${esc(gbp(usr.max))}</text>` : ''}
+      ${xa.t.map((v) => `<line class="gl" x1="${X(v).toFixed(1)}" x2="${X(v).toFixed(1)}" y1="${T - 14}" y2="${by0}"/><text class="al" x="${X(v).toFixed(1)}" y="${by0 + 22}" text-anchor="middle">${esc(gbp(v))}</text>`).join('')}
+      <text class="at" x="${(L + W - R) / 2}" y="${H - 8}" text-anchor="middle">Price per model (£${logx ? ', log scale' : ''})</text>
+      ${rows.map((r, i) => { const y = T + i * RH + RH / 2; return `<g><line class="gl" x1="${L}" x2="${W - R}" y1="${y + RH / 2}" y2="${y + RH / 2}"/><text class="rl${r.st.us ? ' us' : ''}" x="${L - 14}" y="${y + 4}" text-anchor="end">${esc(r.b)}</text>
+        <line x1="${X(r.min).toFixed(1)}" x2="${X(r.max).toFixed(1)}" y1="${y}" y2="${y}" stroke="${r.st.c}" stroke-width="${r.st.us ? 5 : 3}" stroke-linecap="round" opacity="${r.st.us ? 1 : .75}"/>
+        ${r.l.map((o) => dotG(o, X(o.price), y, r.st.us ? 7 : 5.5, r.st, sel.has(o.p.id))).join('')}
+        <text class="pr" x="${(X(r.max) + 12).toFixed(1)}" y="${y + 4}">${r.l.length > 1 ? `${esc(gbp(r.min))} to ${esc(gbp(r.max))}` : esc(gbp(r.min))} · ${r.l.length} model${r.l.length === 1 ? '' : 's'}</text></g>`; }).join('')}</svg>`;
   }
   function insChart() {
-    const D = chartData(), q = S.chFind.toLowerCase(), shown = D.names.filter((b) => !q || b.toLowerCase().includes(q));
-    const item = (b) => { const on = !S.chHide.has(b), has = D.plotted.has(b); return `<button type="button" class="tgl${on ? '' : ' off'}${has ? '' : ' nodata'}" data-tgl="${esc(b)}" aria-pressed="${on}" title="${has ? '' : 'No model of this brand has both a price and ' + esc(D.yl) + ' yet'}"><span class="tn">${isUs(b) ? '<b class="pm-us">US</b> ' : ''}${esc(b)}</span><i class="dotc" style="${on && has ? `background:${brandColor(b)}` : `border-color:${brandColor(b)}`}"></i></button>`; };
-    const usL = shown.filter(isUs), rest = shown.filter((b) => !isUs(b));
-    return `<div class="panel cx-panel"><div class="chart-head"><div><h3>Price vs ${esc(D.yl.replace(/ \(.*/, '').toLowerCase())}</h3><div class="sub">Every model with a price and this spec. Each line is one brand, from its cheapest to its dearest model.</div></div>
-        <div class="cx-ctl"><label class="chk"><input type="checkbox" id="chPareto"${S.pareto ? ' checked' : ''}> Pareto line</label><div class="seg" role="group" aria-label="Price scale"><button type="button" id="chLin" class="${S.cscale === 'lin' ? 'on' : ''}">Linear</button><button type="button" id="chLog" class="${S.cscale === 'log' ? 'on' : ''}">Log</button></div></div></div>
-      ${gloss([['Dot', 'One model. Select it to add it to the comparison.'], ['Line', 'Joins one brand’s models from cheapest to dearest.'], ['Pareto line', 'Models that no other visible model beats on both price and ' + esc(D.yl.replace(/ \(.*/, '').toLowerCase()) + '. Anything off the line is beaten by a model that costs less and does better.'], ['Log', 'Each step to the right is a multiple, not a fixed amount, so cheap and premium models both stay readable.']])}
-      <div class="cx"><div class="cx-main"><div class="cmp-bar"><label>Up<select class="field" id="chY">${Object.keys(YAX).map((k) => `<option value="${k}"${k === S.cy ? ' selected' : ''}>${YAX[k][0]}</option>`).join('')}</select></label><span class="muted">${D.all.length} of ${S.products.length} models are plotted.</span></div>${chartSvg(D)}</div>
-      <aside class="cx-side"><div class="cx-sh"><strong>Brands</strong><span class="muted">${D.names.length}</span><button type="button" class="linkbtn" id="chReset" title="Show every brand">Reset</button></div><input class="field" id="chFind" placeholder="Find brands" value="${esc(S.chFind)}" aria-label="Find brands"><div class="cx-list">${usL.length ? `<div class="cx-g">Us</div>${usL.map(item).join('')}` : ''}<div class="cx-g">Competitors</div>${rest.map(item).join('') || '<div class="muted">No brand matches.</div>'}</div><div class="sub">Hollow dots: no model of that brand has both values yet.</div></aside></div></div>`;
+    const D = chartData(), V = D.V, q = S.chFind.toLowerCase(), list = D.names.filter((b) => !q || b.toLowerCase().includes(q)), can = list.filter((b) => D.plotted.has(b)), cant = list.filter((b) => !D.plotted.has(b));
+    const item = (b, ok) => { const on = !S.chHide.has(b), st = brandStyle(b); return `<button type="button" class="tgl${on && ok ? '' : ' off'}" data-tgl="${esc(b)}" aria-pressed="${on}"><span class="tn">${isUs(b) ? '<b class="pm-us">US</b> ' : ''}${esc(b)}${ok ? '' : `<small>${esc(D.why(b))}</small>`}</span><i class="dotc" style="${ok && on ? `background:${st.c}` : `border-color:${st.c}`}"></i></button>`; };
+    const usesPrice = V.id === 'ladder' || V.x === 'price';
+    return `<div class="panel cx-panel"><div class="chart-head"><div><h3>${esc(V.label)}</h3><div class="sub">${D.all.length} of ${S.products.length} models are drawn.</div></div>
+        <div class="cx-ctl"><label class="cmp-bar">View<select class="field" id="chView">${VIEWS.map((v) => `<option value="${v.id}"${v.id === V.id ? ' selected' : ''}>${esc(v.label)}</option>`).join('')}</select></label>${usesPrice ? `<div class="seg" role="group" aria-label="Price scale"><button type="button" id="chLin" class="${S.cscale === 'lin' ? 'on' : ''}">Linear</button><button type="button" id="chLog" class="${S.cscale === 'log' ? 'on' : ''}">Log</button></div>` : ''}</div></div>
+      ${gloss([['What it shows', V.what], ['Dots', 'One model each. Select a dot to add it to the Product Comparison.'], ...(usesPrice ? [['Log scale', 'Each step to the right is a multiple, not a fixed amount, so cheap and premium models both stay readable.']] : []), ...(D.anyConv ? [['Hollow dot', 'Priced in € or $, so the £ price is converted.']] : [])])}
+      ${D.anyConv ? `<div class="fx">Rates used for € and $ prices (approximate, change if you like): €1 = £<input class="field" id="fxEUR" type="number" step="0.01" min="0.1" max="2" value="${S.fx.EUR}"> $1 = £<input class="field" id="fxUSD" type="number" step="0.01" min="0.1" max="2" value="${S.fx.USD}"></div>` : ''}
+      <div class="cx"><div class="cx-main">${V.id === 'ladder' ? ladderSvg(D) : scatterSvg(D)}</div>
+      <aside class="cx-side"><div class="cx-sh"><strong>Brands</strong><span class="muted">${D.names.length}</span><button type="button" class="linkbtn" id="chReset" title="Show every brand">Reset</button></div><input class="field" id="chFind" placeholder="Find brands" value="${esc(S.chFind)}" aria-label="Find brands"><div class="cx-list">${can.length ? `<div class="cx-g">On this chart</div>${can.map((b) => item(b, true)).join('')}` : ''}${cant.length ? `<div class="cx-g">Missing data for this view</div>${cant.map((b) => item(b, false)).join('')}` : ''}${list.length ? '' : '<div class="muted">No brand matches.</div>'}</div></aside></div></div>`;
   }
 
   function niceTicks(lo, hi) {
@@ -404,8 +483,8 @@
   function renderMatrix() {
     fixCmp();
     const noModels = C.brands.filter((b) => !S.products.some((p) => p.brand === b));
-    $('#matrix').innerHTML = `<div class="head"><div><h2>Product matrix</h2><div class="sub">Compare up to ${MAXCMP} models side by side. Pick a model in each column. Us: <strong>${esc(usName())}</strong>.</div></div>
-      <div class="source-actions"><button type="button" class="primary" id="addModel">Add model</button><button type="button" class="imagebtn" id="loadStarter">Load researched data</button><button type="button" class="imagebtn" id="goCollect">Import &amp; fill gaps</button><button type="button" class="imagebtn" id="impCsv">Import CSV</button><button type="button" class="imagebtn" id="expCsv">Export CSV</button><button type="button" class="imagebtn" id="toggleWide">${S.wide ? 'Show menu' : 'Full width'}</button><input type="file" id="csvFile" accept=".csv,text/csv" hidden></div></div>
+    $('#matrix').innerHTML = `<div class="head"><div><h2>Product Comparison</h2><div class="sub">Compare up to ${MAXCMP} models side by side. Select + to add a model, × to take one out. Us: <strong>${esc(usName())}</strong>.</div></div>
+      <div class="source-actions"><button type="button" class="primary" id="addModel">Add model</button><button type="button" class="imagebtn" id="loadStarter">Load researched data</button><button type="button" class="imagebtn" id="impCsv">Import CSV</button><button type="button" class="imagebtn" id="expCsv">Export CSV</button><button type="button" class="imagebtn" id="toggleWide">${S.wide ? 'Show menu' : 'Full width'}</button><input type="file" id="csvFile" accept=".csv,text/csv" hidden></div></div>
       <div class="panel ap-panel">${matrixTable()}</div>
       <div class="panel"><div class="chart-head"><div><h3>All models</h3><div class="sub">${S.products.length} saved. Select Export CSV to get a spreadsheet to fill in (brands with no models appear as empty rows), then Import CSV.</div></div><input class="field" id="mdlSearch" placeholder="Filter models" value="${esc(S.q)}"></div><div class="tbl-wrap" id="mdlBox">${modelsTable()}</div>
         <details class="gaps"><summary>Brands with no models yet (${noModels.length})</summary><div class="chips">${noModels.length ? noModels.map((b) => `<button type="button" class="chip gap-chip" data-add="${esc(b)}">${esc(b)}</button>`).join('') : '<em class="muted">None.</em>'}</div></details></div>`;
@@ -413,7 +492,7 @@
   RENDER.matrix = renderMatrix;
   /* ----- model dialog, CSV ----- */
   const FDEF = [
-    ['Overview', [['brand', 'Brand', 'select'], ['model', 'Model', 'text'], ['category', 'Category', 'cat'], ['priceGBP', 'Price (£, incl. VAT)', 'number'], ['priceNote', 'Price note', 'text'], ['colours', 'Colours', 'text'], ['handlebars', 'Handlebars', 'text'], ['launch', 'Launch (2025 or 2025-09)', 'text']]],
+    ['Overview', [['brand', 'Brand', 'select'], ['model', 'Model', 'text'], ['category', 'Category', 'cat'], ['priceGBP', 'Price (£, incl. VAT)', 'number'], ['priceEUR', 'Price (€), if not sold in the UK', 'number'], ['priceUSD', 'Price ($), if not sold in the UK', 'number'], ['priceNote', 'Price note', 'text'], ['colours', 'Colours', 'text'], ['handlebars', 'Handlebars', 'text'], ['launch', 'Launch (2025 or 2025-09)', 'text']]],
     ['Size and weight', [['weightKg', 'Weight (kg)', 'number'], ['wheelIn', 'Wheel size (in)', 'text'], ['foldH', 'Folded height (cm)', 'number'], ['foldW', 'Folded width (cm)', 'number'], ['foldL', 'Folded depth (cm)', 'number']]],
     ...SPEC_GROUPS.map(([t, f]) => [t, f.map(([k, l]) => [k, l, 'text'])]),
     ['Electric', [['motor', 'Motor', 'text'], ['batteryWh', 'Battery (Wh)', 'number'], ['rangeKm', 'Range (km)', 'number']]],
@@ -482,9 +561,9 @@
       const rows = parseCSV(await file.text()); if (rows.length < 2) throw new Error('The file has no data rows');
       const head = rows[0].map((h) => { h = h.trim(); return COLS_ALIAS[h] || h; }), unknown = head.filter((h) => h && !COLS.includes(h));
       if (!head.includes('brand') || !head.includes('model')) throw new Error('The first row must include the columns brand and model');
-      const products = rows.slice(1).map((r) => { const o = {}; head.forEach((h, i) => { if (COLS.includes(h)) o[h] = (r[i] || '').trim(); }); return o; }).filter((o) => o.model).map((o) => Object.fromEntries(Object.entries(o).filter(([k, v]) => v !== '' || k === 'brand' || k === 'model')));
+      const products = rows.slice(1).map((r) => { const o = {}; head.forEach((h, i) => { if (COLS.includes(h)) o[h] = (r[i] || '').trim(); }); return o; }).filter((o) => o.model);
       if (!products.length) throw new Error('No rows with a model name were found');
-      if (!confirm(`Import ${products.length} model${products.length === 1 ? '' : 's'}? Matching brand + model rows are updated. Empty cells are ignored, so nothing you already have is wiped.${unknown.length ? '\nIgnored columns: ' + unknown.join(', ') : ''}`)) return;
+      if (!confirm(`Import ${products.length} model${products.length === 1 ? '' : 's'}? Matching brand + model rows are updated; empty cells in a column that is present will clear that value.${unknown.length ? '\nIgnored columns: ' + unknown.join(', ') : ''}`)) return;
       const r = await api('POST', '/api/products', { products }); S.products = r.products; toast(`${r.added} added, ${r.updated} updated`); renderMatrix();
     } catch (err) { toast('Import failed: ' + err.message); }
   }
@@ -555,7 +634,7 @@
   }
   function rangeHtml(n) {
     const ps = S.products.filter((p) => p.brand === n); if (!ps.length) return `<p class="muted">No models recorded.</p><button type="button" class="imagebtn" data-add="${esc(n)}">Add a model</button>`;
-    return `<div class="tbl-wrap"><table class="pm-table"><thead><tr><th>Model</th><th>Category</th><th class="num">Price</th><th class="num">Weight</th><th class="num">Battery</th><th class="num">Range</th><th>Launch</th><th></th></tr></thead><tbody>${ps.map((p) => `<tr><td>${esc(p.model)}</td><td>${esc(p.category || '—')}</td><td class="num">${gbp(p.priceGBP)}</td><td class="num">${p.weightKg != null ? p.weightKg + ' kg' : '—'}</td><td class="num">${p.batteryWh != null ? p.batteryWh + ' Wh' : '—'}</td><td class="num">${p.rangeKm != null ? p.rangeKm + ' km' : '—'}</td><td>${plain(p.launch)}</td><td class="acts"><button type="button" class="linkbtn" data-cmp="${esc(p.id)}">Compare${isUs(n) ? '' : ' with us'}</button><button type="button" class="linkbtn" data-edit="${esc(p.id)}">Edit</button></td></tr>`).join('')}</tbody></table></div><button type="button" class="imagebtn" data-add="${esc(n)}">Add a model</button>`;
+    return `<div class="tbl-wrap"><table class="pm-table"><thead><tr><th>Model</th><th>Category</th><th class="num">Price</th><th class="num">Weight</th><th class="num">Battery</th><th class="num">Range</th><th>Launch</th><th></th></tr></thead><tbody>${ps.map((p) => `<tr><td>${esc(p.model)}</td><td>${esc(p.category || '—')}</td><td class="num">${priceTxt(p)}</td><td class="num">${p.weightKg != null ? p.weightKg + ' kg' : '—'}</td><td class="num">${p.batteryWh != null ? p.batteryWh + ' Wh' : '—'}</td><td class="num">${p.rangeKm != null ? p.rangeKm + ' km' : '—'}</td><td>${plain(p.launch)}</td><td class="acts"><button type="button" class="linkbtn" data-cmp="${esc(p.id)}">Compare${isUs(n) ? '' : ' with us'}</button><button type="button" class="linkbtn" data-edit="${esc(p.id)}">Edit</button></td></tr>`).join('')}</tbody></table></div><button type="button" class="imagebtn" data-add="${esc(n)}">Add a model</button>`;
   }
   function renderProfile() {
     const n = S.profile; if (!n) return go('competitors');
@@ -588,7 +667,7 @@
       <h2>Company</h2><p>${[b.hq && 'Head office: ' + esc(b.hq), b.founded && 'Founded ' + esc(b.founded), b.employees && 'Size: ' + esc(b.employees), b.ownership && 'Ownership: ' + esc(b.ownership), b.website && esc(b.website)].filter(Boolean).join(' · ') || '<span class="m">Not filled in</span>'}</p>
       <h2>Positioning</h2><p>${b.positioning ? esc(b.positioning) : '<span class="m">Not filled in</span>'}</p>
       <div class="two"><div><h2>Strengths</h2><ul>${li(b.strengths)}</ul></div><div><h2>Weaknesses</h2><ul>${li(b.weaknesses)}</ul></div></div>
-      <h2>Current range and pricing</h2>${ps.length ? `<table><tr><th>Model</th><th>Price</th><th>Weight</th><th>Folded</th><th>Battery</th><th>Range</th><th>Launch</th></tr>${ps.map((p) => `<tr><td>${esc(p.model)}</td><td>${gbp(p.priceGBP)}</td><td>${p.weightKg != null ? p.weightKg + ' kg' : '—'}</td><td>${esc(fold(p) || '—')}</td><td>${p.batteryWh != null ? p.batteryWh + ' Wh' : '—'}</td><td>${p.rangeKm != null ? p.rangeKm + ' km' : '—'}</td><td>${plain(p.launch)}</td></tr>`).join('')}</table>` : '<p class="m">No models recorded</p>'}
+      <h2>Current range and pricing</h2>${ps.length ? `<table><tr><th>Model</th><th>Price</th><th>Weight</th><th>Folded</th><th>Battery</th><th>Range</th><th>Launch</th></tr>${ps.map((p) => `<tr><td>${esc(p.model)}</td><td>${priceTxt(p)}</td><td>${p.weightKg != null ? p.weightKg + ' kg' : '—'}</td><td>${esc(fold(p) || '—')}</td><td>${p.batteryWh != null ? p.batteryWh + ' Wh' : '—'}</td><td>${p.rangeKm != null ? p.rangeKm + ' km' : '—'}</td><td>${plain(p.launch)}</td></tr>`).join('')}</table>` : '<p class="m">No models recorded</p>'}
       <h2>Recent events</h2>${ev.length ? `<table>${ev.map((x) => `<tr><td>${esc(E.fmtDate(x.date))} ${esc(String(x.date).slice(0, 4))}</td><td>${esc(evtOf(x))}</td><td>${x.title} <small>${x.source}</small></td></tr>`).join('')}</table>` : '<p class="m">None captured</p>'}
       <h2>Regions</h2>${r ? REG.map((k) => `<div><strong>${k}:</strong> ${(r[k] || []).length ? esc(r[k].join(', ')) : '<span class="m">none listed</span>'}</div>`).join('') : '<p class="m">No region data</p>'}
       <h2>Commercials</h2><p>${[rev != null ? 'Revenue £' + rev + 'm' : '', un != null ? 'Units ' + un.toLocaleString('en-GB') : '', b.dataNote ? esc(b.dataNote) : ''].filter(Boolean).join(' · ') || '<span class="m">None on file</span>'}</p>
@@ -731,6 +810,11 @@
       const it = t.closest('[data-itab]'); if (it) { S.insTab = it.dataset.itab; return renderInsights(); }
       const ps = t.closest('[data-psort]'); if (ps) { const k = ps.dataset.psort; S.pfSort = { k, d: S.pfSort.k === k ? -S.pfSort.d : (k === 'b' ? 1 : -1) }; return renderInsights(); }
       const gt = t.closest('[data-go]'); if (gt) return go(gt.dataset.go);
+      const pk = t.closest('[data-pick]'); if (pk) return openPicker(+pk.dataset.pick);
+      const rm = t.closest('[data-rm]'); if (rm) { S.cmp.others = S.cmp.others.filter((x) => x !== rm.dataset.rm); fixCmp(); return renderMatrix(); }
+      const ch = t.closest('[data-choose]'); if (ch) return choose(ch.dataset.choose);
+      if (t.closest('[data-add-from-pick]')) { $('#pmPick').close(); return openModel(null); }
+      const ct = t.closest('[data-ctry]'); if (ct) { S.mkC = S.mkC === ct.dataset.ctry ? '' : ct.dataset.ctry; return renderInsights(); }
       const tg = t.closest('[data-tgl]'); if (tg) { const b = tg.dataset.tgl; if (S.chHide.has(b)) S.chHide.delete(b); else S.chHide.add(b); return renderInsights(); }
       const ed = t.closest('[data-edit]'); if (ed) { const p = prodById(ed.dataset.edit); if (p) openModel(p); return; }
       const ad = t.closest('[data-add]'); if (ad) return openModel(null, ad.dataset.add);
@@ -748,7 +832,6 @@
         case 'impBrands': return $('#brandFile').click();
         case 'addModel': return openModel(null);
         case 'loadStarter': return loadStarter();
-        case 'goCollect': return go('collect');
         case 'impCsv': return $('#csvFile').click();
         case 'expCsv': return exportCsv();
         case 'manageWatch': case 'pinFirst': return manageWatch();
@@ -767,15 +850,10 @@
       const t = e.target;
       if (t.id === 'showEmpty') { S.showEmpty = t.checked; return renderMatrix(); }
       if (t.id === 'showDiff') { S.diff = t.checked; return renderMatrix(); }
-      if (t.id === 'chPareto') { S.pareto = t.checked; return renderInsights(); }
-      if (t.id === 'chY') { S.cy = t.value; return renderInsights(); }
-      if (t.classList.contains('cmp-sel')) {
-        const i = +t.dataset.slot;
-        if (i === 0) { if (t.value) S.cmp.us = t.value; }
-        else if (t.value) { if (i - 1 < S.cmp.others.length) S.cmp.others[i - 1] = t.value; else S.cmp.others.push(t.value); S.cmp.others = [...new Set(S.cmp.others)]; }
-        else S.cmp.others.splice(i - 1, 1);
-        fixCmp(); return renderMatrix();
-      }
+      if (t.id === 'chView') { S.cview = t.value; return renderInsights(); }
+      if (t.id === 'mkSel') { S.mkSel = t.value; S.mkC = ''; return renderInsights(); }
+      if (t.id === 'mkAbsent') { S.mkAbsent = t.checked; return renderInsights(); }
+      if (t.id === 'fxEUR' || t.id === 'fxUSD') { const v = parseFloat(t.value); if (v > 0.1 && v < 2) { S.fx[t.id === 'fxEUR' ? 'EUR' : 'USD'] = v; sv('cih_pm_fx', S.fx); } return renderInsights(); }
       if (t.id === 'brandFile') { if (t.files[0]) await importBrands(t.files[0]); t.value = ''; return; }
       if (t.id === 'csvFile') { if (t.files[0]) await importCsv(t.files[0]); t.value = ''; return; }
       if (t.id === 'evtType') { C.evtSel = t.value; return C.feed(); }
@@ -785,6 +863,7 @@
     });
     document.addEventListener('input', (e) => {
       if (e.target.id === 'mdlSearch') { S.q = e.target.value; $('#mdlBox').innerHTML = modelsTable(); }
+      if (e.target.id === 'pickQ') { S.pickQ = e.target.value; $('#pickList').innerHTML = pickerHtml(); }
       if (e.target.id === 'chFind') { S.chFind = e.target.value; renderInsights(); const f = $('#chFind'); if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); } }
     });
     $('#pmWatchForm').onsubmit = async (e) => {
@@ -799,17 +878,16 @@
   /* ---------- start ---------- */
   Object.assign(C, { photo: (n) => bm(n).photo || '', pic: (n) => (bm(n).photoSource === 'uploaded' && bm(n).photo) || C.images[n] || bm(n).photo || '', setPhoto: (b, photo, src) => { S.brands[b] = Object.assign({}, bm(b), { photo, photoSource: src }); }, isUs, badges, evtChip, passEvt: (n) => !C.evtSel || evtOf(n) === C.evtSel, evtSel: '', openProfile, renderInsights, onNews: () => { const a = ($('.view.active') || {}).id; if (a === 'insights') RENDER[a](); } });
   mkView('matrix', ''); mkView('profile', '');
-  mkNav('matrix', 'Product matrix', 'competitors');
+  mkNav('matrix', 'Product Comparison', 'competitors');
   const side = $('.side'); ['sources', 'competitors', 'matrix', 'social', 'insights', 'news'].forEach((v) => side.insertBefore(side.querySelector(`.nav[data-v="${v}"]`), side.firstChild)); // News, Insights, Social, Matrix, Competitors, Sources
   const evtSelect = document.createElement('select'); evtSelect.className = 'field'; evtSelect.id = 'evtType'; evtSelect.setAttribute('aria-label', 'Event type');
   evtSelect.innerHTML = '<option value="">All event types</option>' + E.EVENT_TYPES.map((t) => `<option>${t}</option>`).join(''); $('#news .tools').appendChild(evtSelect);
   document.body.insertAdjacentHTML('beforeend', `<dialog id="pmWatchDlg"><form id="pmWatchForm"><div class="mh"><strong>Manage watchlist</strong><button type="button" data-close aria-label="Close">×</button></div><div class="mb source-form"><div class="sub">Pin the 5 to 8 competitors that matter most. Set a threat level on each profile.</div><div class="checks" id="pmWatchList"></div><div class="form-actions"><button type="button" class="imagebtn" data-close>Cancel</button><button class="primary">Save watchlist</button></div></div></form></dialog>`);
-  window.CIPM = { S, api, RENDER, mkView, mkNav, go, C, usName, openModel };
   modelDialog(); brandDialog(); addCompetitorTools(); wire();
-  S.cmp = Object.assign({ us: '', others: [] }, ld('cih_pm_cmp', {})); S.wide = ld('cih_pm_wide', true);
+  S.cmp = Object.assign({ us: '', others: [] }, ld('cih_pm_cmp', {})); S.wide = ld('cih_pm_wide', true); S.fx = Object.assign({}, FX_DEFAULT, ld('cih_pm_fx', {}));
   (async () => {
     try { const [b, p] = await Promise.all([api('GET', '/api/brands'), api('GET', '/api/products')]); S.brands = b.brands || {}; S.products = p.products || []; }
     catch (err) { toast('Could not load saved profiles and models: ' + err.message); }
-    applyBrands(); const h = (location.hash || '').slice(1); go(['news', 'insights', 'social', 'matrix', 'collect', 'competitors', 'sources'].includes(h) ? h : 'news');
+    applyBrands(); const h = (location.hash || '').slice(1); go(['news', 'insights', 'social', 'matrix', 'competitors', 'sources'].includes(h) ? h : 'news');
   })();
 })();
