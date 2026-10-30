@@ -7,26 +7,31 @@
       "ownership": "Private. A 15% stake was sold in June 2026 (per Wikipedia).",
       "website": "https://www.brompton.com/",
       "positioning": "Folding bikes for city commuting, built in London, with a growing electric range.",
-      "dataNote": "Founding year: Wikipedia gives June 1976 for the company; other sources say 1975 (the bike's design). Headcount is a Revelio Labs estimate, not a company figure.",
-      "lastVerified": "2026-10-27",
+      "dataNote": "Founding year: Wikipedia gives June 1976 for the company; other sources say 1975 (the bike's design). Headcount is a Revelio Labs estimate, not a company figure. P&A count is a proxy: one UK dealer (Condor Cycles) stocks about 345 items in its Brompton components, spares and bags range, including some third-party brands (Brooks, SKS, Lezyne). It is not Brompton's own catalogue size.",
+      "lastVerified": "2026-10-28",
       "sources": [
         "https://en.wikipedia.org/wiki/Brompton_Bicycle",
-        "https://www.reveliolabs.com/companies/brompton-bicycle/employees/"
-      ]
+        "https://www.reveliolabs.com/companies/brompton-bicycle/employees/",
+        "https://www.condorcycles.com/collections/brompton-components-spares-bags"
+      ],
+      "paSkus": 345,
+      "paCategories": "Luggage and bags, lights, saddles, grips and pedals, mudguards, pumps and tools, phone mounts, electric-bike chargers and batteries, spare parts"
     },
     "Tern": {
-      "hq": "Taipei, Taiwan",
+      "hq": "New Taipei City, Taiwan",
       "founded": "2011",
-      "employees": "about 70 (third-party estimate)",
-      "ownership": "Privately held. Founded by Joshua Hon and Florence Shen, who are connected to Dahon's founding family.",
+      "employees": "51-200",
+      "ownership": "Private; subsidiary of Mobility Holdings Ltd",
       "website": "https://www.ternbicycles.com/",
       "positioning": "Folding, cargo and electric bikes for everyday urban transport.",
-      "dataNote": "Wikipedia says its products are sold in 65 countries. No country list was found, so the map is not filled in.",
-      "lastVerified": "2026-10-27",
+      "dataNote": "Wikipedia says its products are sold in 65 countries. No country list was found, so the map is not filled in. Tern states 10 bike lines (BYB, Verge, Link, Eclipse, Node, Roji, HSD, Quick Haul, NBD, Vektron, Short Haul) sold in 65 countries. No unit figure is published; any volume shown is an estimate.",
+      "lastVerified": "2026-10-28",
       "sources": [
         "https://en.wikipedia.org/wiki/Tern_(company)",
-        "https://www.ternbicycles.com/en/news/releases/2011/06/tern-bicycles-spreads-its-wings"
-      ]
+        "https://www.ternbicycles.com/en/news/releases/2011/06/tern-bicycles-spreads-its-wings",
+        "https://www.bccresearch.com/company-index/profile/ternn"
+      ],
+      "paCategories": "Accessories and parts, partly under sister brand BioLogic"
     },
     "Dahon": {
       "hq": "Offices in the US, Europe and China",
@@ -34,13 +39,18 @@
       "ownership": "Founded by Dr David T. Hon, who is still CEO per Wikipedia.",
       "website": "https://dahon.com/",
       "positioning": "Folding bikes; says it ranked first in folding-bike retail volume in mainland China and globally in 2023 (its own claim, citing a CIC report).",
-      "dataNote": "Dahon's own pages quote different country counts (28+, 40+ and 70+). No country list was found, so the map is not filled in.",
-      "lastVerified": "2026-10-27",
+      "dataNote": "Dahon's own pages quote different country counts (28+, 40+ and 70+). No country list was found, so the map is not filled in. LOW CONFIDENCE: units is the annual output Dahon claims on its own site (1 million, all bike types, not only folding). It is a capacity-style claim, not audited sales. Dahon also states 300+ models across 15 series (folding, e-bikes, kids, carbon). Guinness recognised 500,000+ folding bikes a year in 2008.",
+      "lastVerified": "2026-10-28",
       "sources": [
         "https://en.wikipedia.org/wiki/Dahon",
         "https://uk.dahon.com/pages/about",
-        "https://eu.dahon.com/?p=15362"
-      ]
+        "https://eu.dahon.com/?p=15362",
+        "https://dahon.com/?p=26128",
+        "https://www.aap.com.au/aapreleases/cision20230608ae23842"
+      ],
+      "units": 1000000,
+      "skuCount": 300,
+      "paCategories": "Components and spare parts (patented parts sold alongside bikes)"
     },
     "Ahooga": {
       "hq": "Belgium",
@@ -55,12 +65,13 @@
     "Gocycle": {
       "website": "https://gocycle.com/",
       "positioning": "Premium folding e-bike with a proprietary front-hub motor, single-sided carbon fork and 10-second fold.",
-      "dataNote": "Press describes Gocycle as made by Karbon Kinetics. Headquarters, founding year and headcount were not confirmed.",
+      "dataNote": "Press describes Gocycle as made by Karbon Kinetics. Headquarters, founding year and headcount were not confirmed. Current range: G4, G4i and G4i+ (3 models) per UK retailer and press listings.",
       "lastVerified": "2026-10-28",
       "sources": [
         "https://road.cc/content/news/gocycle-g4-folding-e-bike-range-launched-282199",
         "https://www.moveelectric.com/e-bikes/e-bike-review-gocycle-g4-mclaren-designers-take-e-mobility"
-      ]
+      ],
+      "skuCount": 3
     },
     "Birdy": {
       "positioning": "Full-suspension folding bike designed by Riese & Müller and built by Pacific Cycles in Taiwan.",

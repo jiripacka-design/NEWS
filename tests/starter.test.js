@@ -26,3 +26,9 @@ test('cleanProduct keeps new spec fields and caps their length',()=>{
   const {out,bad}=cleanProduct({brand:'X',model:'Y',hingeClamps:'z'.repeat(500),foldL:'27'});
   assert.deepEqual(bad,[]);assert.equal(out.hingeClamps.length,300);assert.equal(out.foldL,27);
 });
+
+test('brand validation accepts the new volume and P&A fields',()=>{
+  const {out,bad}=cleanBrand({paSkus:'120',paCategories:'Luggage, lights',figuresYear:'2024'});
+  assert.deepEqual(bad,[]);assert.equal(out.paSkus,120);assert.equal(out.figuresYear,'2024');
+  assert.deepEqual(cleanBrand({figuresYear:'24'}).bad,['figuresYear (a 4-digit year)']);
+});
