@@ -1,4 +1,4 @@
-/* Product-manager features for the Competitor Intelligence Hub (v3.7.0):
+/* Product-manager features for the Competitor Intelligence Hub (v3.8.0):
    insights (watchlist, momentum, portfolio and volumes, price chart, regions, data gaps), product comparison matrix, competitor profiles, event types and the weekly digest preview.
    Needs window.CIH (exposed by tracker.html) and window.CIEvents (events.js). Saved data lives on the
    server (/api/brands, /api/products, /api/tags) so everyone who signs in sees the same thing. */
@@ -229,7 +229,8 @@
     ['Contact points', [['grips', 'Grips'], ['seatpost', 'Seatpost'], ['saddle', 'Saddle'], ['seatclamp', 'Seat clamp'], ['hingeClamps', 'Hinge clamps'], ['pedals', 'Pedals']]],
     ['Drivetrain', [['gears', 'Speed'], ['drivetrain', 'Drivetrain'], ['chainset', 'Chainset'], ['bottomBracket', 'Bottom bracket'], ['headset', 'Headset'], ['shifters', 'Shifters'], ['sprockets', 'Sprockets'], ['derailleur', 'Derailleur']]],
     ['Wheels and tyres', [['rearWheel', 'Rear wheel'], ['frontWheel', 'Front wheel'], ['tyres', 'Tyres'], ['tubes', 'Tubes'], ['rollerWheels', 'Roller wheels']]],
-    ['Brakes and equipment', [['brakes', 'Brakes'], ['mudguards', 'Mudguards'], ['lighting', 'Lighting'], ['rack', 'Rack'], ['frontCarrier', 'Front carrier']]]
+    ['Brakes and equipment', [['brakes', 'Brakes'], ['mudguards', 'Mudguards'], ['lighting', 'Lighting'], ['rack', 'Rack'], ['frontCarrier', 'Front carrier']]],
+    ['Fit and warranty', [['riderHeight', 'Rider height'], ['maxLoadKg', 'Max load (kg)'], ['warranty', 'Warranty']]]
   ];
   const SPEC_KEYS = SPEC_GROUPS.flatMap((g) => g[1].map((x) => x[0]));
   const COLS = ['brand', 'model', 'category', 'priceGBP', 'priceNote', 'colours', 'handlebars', 'weightKg', 'foldH', 'foldW', 'foldL', 'wheelIn', ...SPEC_KEYS.filter((k) => k !== 'gears'), 'gears', 'motor', 'batteryWh', 'rangeKm', 'launch', 'url', 'sourceUrl', 'lastVerified', 'notes'];
@@ -404,7 +405,7 @@
     fixCmp();
     const noModels = C.brands.filter((b) => !S.products.some((p) => p.brand === b));
     $('#matrix').innerHTML = `<div class="head"><div><h2>Product matrix</h2><div class="sub">Compare up to ${MAXCMP} models side by side. Pick a model in each column. Us: <strong>${esc(usName())}</strong>.</div></div>
-      <div class="source-actions"><button type="button" class="primary" id="addModel">Add model</button><button type="button" class="imagebtn" id="loadStarter">Load researched data</button><button type="button" class="imagebtn" id="impCsv">Import CSV</button><button type="button" class="imagebtn" id="expCsv">Export CSV</button><button type="button" class="imagebtn" id="toggleWide">${S.wide ? 'Show menu' : 'Full width'}</button><input type="file" id="csvFile" accept=".csv,text/csv" hidden></div></div>
+      <div class="source-actions"><button type="button" class="primary" id="addModel">Add model</button><button type="button" class="imagebtn" id="loadStarter">Load researched data</button><button type="button" class="imagebtn" id="goCollect">Import &amp; fill gaps</button><button type="button" class="imagebtn" id="impCsv">Import CSV</button><button type="button" class="imagebtn" id="expCsv">Export CSV</button><button type="button" class="imagebtn" id="toggleWide">${S.wide ? 'Show menu' : 'Full width'}</button><input type="file" id="csvFile" accept=".csv,text/csv" hidden></div></div>
       <div class="panel ap-panel">${matrixTable()}</div>
       <div class="panel"><div class="chart-head"><div><h3>All models</h3><div class="sub">${S.products.length} saved. Select Export CSV to get a spreadsheet to fill in (brands with no models appear as empty rows), then Import CSV.</div></div><input class="field" id="mdlSearch" placeholder="Filter models" value="${esc(S.q)}"></div><div class="tbl-wrap" id="mdlBox">${modelsTable()}</div>
         <details class="gaps"><summary>Brands with no models yet (${noModels.length})</summary><div class="chips">${noModels.length ? noModels.map((b) => `<button type="button" class="chip gap-chip" data-add="${esc(b)}">${esc(b)}</button>`).join('') : '<em class="muted">None.</em>'}</div></details></div>`;
@@ -481,9 +482,9 @@
       const rows = parseCSV(await file.text()); if (rows.length < 2) throw new Error('The file has no data rows');
       const head = rows[0].map((h) => { h = h.trim(); return COLS_ALIAS[h] || h; }), unknown = head.filter((h) => h && !COLS.includes(h));
       if (!head.includes('brand') || !head.includes('model')) throw new Error('The first row must include the columns brand and model');
-      const products = rows.slice(1).map((r) => { const o = {}; head.forEach((h, i) => { if (COLS.includes(h)) o[h] = (r[i] || '').trim(); }); return o; }).filter((o) => o.model);
+      const products = rows.slice(1).map((r) => { const o = {}; head.forEach((h, i) => { if (COLS.includes(h)) o[h] = (r[i] || '').trim(); }); return o; }).filter((o) => o.model).map((o) => Object.fromEntries(Object.entries(o).filter(([k, v]) => v !== '' || k === 'brand' || k === 'model')));
       if (!products.length) throw new Error('No rows with a model name were found');
-      if (!confirm(`Import ${products.length} model${products.length === 1 ? '' : 's'}? Matching brand + model rows are updated; empty cells in a column that is present will clear that value.${unknown.length ? '\nIgnored columns: ' + unknown.join(', ') : ''}`)) return;
+      if (!confirm(`Import ${products.length} model${products.length === 1 ? '' : 's'}? Matching brand + model rows are updated. Empty cells are ignored, so nothing you already have is wiped.${unknown.length ? '\nIgnored columns: ' + unknown.join(', ') : ''}`)) return;
       const r = await api('POST', '/api/products', { products }); S.products = r.products; toast(`${r.added} added, ${r.updated} updated`); renderMatrix();
     } catch (err) { toast('Import failed: ' + err.message); }
   }
@@ -747,6 +748,7 @@
         case 'impBrands': return $('#brandFile').click();
         case 'addModel': return openModel(null);
         case 'loadStarter': return loadStarter();
+        case 'goCollect': return go('collect');
         case 'impCsv': return $('#csvFile').click();
         case 'expCsv': return exportCsv();
         case 'manageWatch': case 'pinFirst': return manageWatch();
@@ -802,11 +804,12 @@
   const evtSelect = document.createElement('select'); evtSelect.className = 'field'; evtSelect.id = 'evtType'; evtSelect.setAttribute('aria-label', 'Event type');
   evtSelect.innerHTML = '<option value="">All event types</option>' + E.EVENT_TYPES.map((t) => `<option>${t}</option>`).join(''); $('#news .tools').appendChild(evtSelect);
   document.body.insertAdjacentHTML('beforeend', `<dialog id="pmWatchDlg"><form id="pmWatchForm"><div class="mh"><strong>Manage watchlist</strong><button type="button" data-close aria-label="Close">×</button></div><div class="mb source-form"><div class="sub">Pin the 5 to 8 competitors that matter most. Set a threat level on each profile.</div><div class="checks" id="pmWatchList"></div><div class="form-actions"><button type="button" class="imagebtn" data-close>Cancel</button><button class="primary">Save watchlist</button></div></div></form></dialog>`);
+  window.CIPM = { S, api, RENDER, mkView, mkNav, go, C, usName, openModel };
   modelDialog(); brandDialog(); addCompetitorTools(); wire();
   S.cmp = Object.assign({ us: '', others: [] }, ld('cih_pm_cmp', {})); S.wide = ld('cih_pm_wide', true);
   (async () => {
     try { const [b, p] = await Promise.all([api('GET', '/api/brands'), api('GET', '/api/products')]); S.brands = b.brands || {}; S.products = p.products || []; }
     catch (err) { toast('Could not load saved profiles and models: ' + err.message); }
-    applyBrands(); const h = (location.hash || '').slice(1); go(['news', 'insights', 'social', 'matrix', 'competitors', 'sources'].includes(h) ? h : 'news');
+    applyBrands(); const h = (location.hash || '').slice(1); go(['news', 'insights', 'social', 'matrix', 'collect', 'competitors', 'sources'].includes(h) ? h : 'news');
   })();
 })();

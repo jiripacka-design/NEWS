@@ -15,7 +15,7 @@ test('every starter model passes product validation and names its source',()=>{
 test('the Brompton C Line 12-speed row carries the full official spec list',()=>{
   const p=starter.find(x=>x.model.startsWith('C Line with Advance Roller Frame'));
   assert.equal(p.priceGBP,1809);assert.equal(p.weightKg,12.5);
-  const missing=SPEC_TEXT.filter(k=>!p[k]);assert.deepEqual(missing,[]);
+  const extra=['riderHeight','warranty'];const missing=SPEC_TEXT.filter(k=>!extra.includes(k)&&!p[k]);assert.deepEqual(missing,[]);
 });
 test('CSV in starter-data matches the JSON row count',()=>{
   const lines=fs.readFileSync('starter-data/products.csv','utf8').replace(/^\uFEFF/,'').split(/\r?\n/).filter(Boolean);
