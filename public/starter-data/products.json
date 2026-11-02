@@ -46,7 +46,9 @@
    "url": "https://www.brompton.com/p/2729/c-line-with-roller-frame-12-speed-my27",
    "sourceUrl": "https://www.brompton.com/p/2729/c-line-with-roller-frame-12-speed-my27",
    "notes": "Weight is 'from'. Folded size converted from 25.3 x 23 x 10.6 in (H x W x D). Brompton states a 7-year frame warranty. Specs subject to change without notice.",
-   "lastVerified": "2026-10-28"
+   "lastVerified": "2026-10-28",
+   "warranty": "7-year frame warranty",
+   "line": "C Line"
   },
   {
    "brand": "Tern",
@@ -85,7 +87,8 @@
    "url": "https://www.ternbicycles.com/uk/bikes/471/verge-x11",
    "sourceUrl": "https://www.ternbicycles.com/uk/bikes/471/verge-x11",
    "notes": "Tern lists folded size as 380 x 800 x 740 mm without axis labels; assigned W 38, L 80, H 74. Max rider weight 105 kg; max gross vehicle weight 120 kg; suggested rider height 142-190 cm; folds in 10 s. Weight excludes racks and mudguards.",
-   "lastVerified": "2026-10-28"
+   "lastVerified": "2026-10-28",
+   "line": "Verge"
   },
   {
    "brand": "Brompton",
@@ -115,13 +118,14 @@
    "url": "https://www.brompton.com/p/1760/electric-c-line-e-motiq-system-4-speed-uk",
    "sourceUrl": "https://www.brompton.com/p/1760/electric-c-line-e-motiq-system-4-speed-uk",
    "notes": "Range is 'up to'. 345 Wh Greenway battery, 5-hour full charge, removable. Handlebar control screen and over-the-air updates. Weight 'from 17.6 kg' and price from wheelbase.co.uk; Brompton Belgium lists 'from 17.7 kg' for the SuperRoll+ version. Folded size taken from the classic C Line figure.",
-   "lastVerified": "2026-10-28"
+   "lastVerified": "2026-10-28",
+   "line": "Electric C Line"
   },
   {
    "brand": "Dahon",
    "model": "Mariner D8",
    "category": "Folding bike",
-   "priceNote": "No GBP price found. US $899 (sale; list $949) on usa.dahon.com; EU price not clear on de.dahon.com",
+   "priceNote": "US $899 (sale; list $949) on usa.dahon.com, shown in £ at an approximate rate. EU price not clear on de.dahon.com",
    "weightKg": 12.64,
    "foldH": 65,
    "foldW": 28,
@@ -136,7 +140,9 @@
    "url": "https://de.dahon.com/products/mariner",
    "sourceUrl": "https://de.dahon.com/products/mariner",
    "notes": "Max rider weight 105 kg. Europe page lists folded size as 65 x 28 x 80 cm without axis labels (assigned H, W, L); US page lists 32.6 x 14 x 26.4 in. Components differ between the older Mariner D8 and the 2026 Mariner D8 II (Tektro 855AL brakes, CST 20x1.5 tyres, Shimano 8-speed, 27.9 lb on retailer pages); confirm which version you track.",
-   "lastVerified": "2026-10-28"
+   "lastVerified": "2026-10-28",
+   "priceUSD": 899,
+   "line": "Mariner"
   },
   {
    "brand": "Brompton",
@@ -162,7 +168,8 @@
    "url": "https://www.brompton.com/c/bikes/p-line",
    "sourceUrl": "https://www.bike24.com/p21021349.html",
    "notes": "No UK price found in sources. Weight 'from 9.75 kg' (Brompton distributor listing) / 9.74 kg (Bike24). Folded size is the figure quoted for the earlier P Line (645 x 585 x 270 mm); confirm for MK2. Seven-year frame guarantee. Confirm all figures on brompton.com.",
-   "lastVerified": "2026-10-28"
+   "lastVerified": "2026-10-28",
+   "line": "P Line"
   },
   {
    "brand": "Brompton",
@@ -176,7 +183,8 @@
    "url": "https://www.brompton.com/p/1029/a-line-23",
    "sourceUrl": "https://velorution.com/blogs/gear/bromptons-worth-it",
    "lastVerified": "2026-10-27",
-   "notes": "Retailer price and weight, carried over from the earlier starter file."
+   "notes": "Retailer price and weight, carried over from the earlier starter file.",
+   "line": "A Line"
   },
   {
    "brand": "Brompton",
@@ -203,7 +211,8 @@
    "url": "https://www.brompton.com/c/bikes/c-line",
    "sourceUrl": "https://us.brompton.com/p/1759/c-line-4-speed-with-roller-rack",
    "notes": "Specs from Brompton US page (roller-rack version); weight 'from 11.35 kg' and folded size from Brompton's Taiwan distributor; price from a UK retailer. Rear hub and rack differ between versions.",
-   "lastVerified": "2026-10-28"
+   "lastVerified": "2026-10-28",
+   "line": "C Line"
   },
   {
    "brand": "Brompton",
@@ -218,7 +227,8 @@
    "url": "https://www.brompton.com/c/bikes/g-line",
    "sourceUrl": "https://velorution.com/blogs/gear/bromptons-worth-it",
    "lastVerified": "2026-10-27",
-   "notes": "Retailer price and weight, carried over from the earlier starter file."
+   "notes": "Retailer price and weight, carried over from the earlier starter file.",
+   "line": "G Line"
   },
   {
    "brand": "Brompton",
@@ -233,7 +243,8 @@
    "url": "https://www.brompton.com/c/bikes/t-line",
    "sourceUrl": "https://velorution.com/blogs/gear/bromptons-worth-it",
    "lastVerified": "2026-10-27",
-   "notes": "Retailer price and weight, carried over from the earlier starter file."
+   "notes": "Retailer price and weight, carried over from the earlier starter file.",
+   "line": "T Line"
   },
   {
    "brand": "Brompton",
@@ -249,13 +260,14 @@
    "url": "https://www.brompton.com/c/electric-bikes/t-line",
    "sourceUrl": "https://velorution.com/blogs/gear/bromptons-worth-it",
    "lastVerified": "2026-10-27",
-   "notes": "Retailer price and weight, carried over from the earlier starter file. Battery and range not yet entered."
+   "notes": "Retailer price and weight, carried over from the earlier starter file. Battery and range not yet entered.",
+   "line": "Electric T Line"
   },
   {
    "brand": "Ahooga",
    "model": "A-MAX Alfine 8",
    "category": "Folding bike",
-   "priceNote": "EUR 1,999 RRP (BIKE Magazin); no GBP price found",
+   "priceNote": "RRP in euros per BIKE Magazin; shown in £ at an approximate rate",
    "weightKg": 14,
    "foldH": 69,
    "foldW": 37,
@@ -266,13 +278,15 @@
    "url": "https://www.ahooga.bike/products/a-max-alfine-8",
    "sourceUrl": "https://www.bike-magazin.de/en/bicycles/city-bikes/folding-bikes-or-folding-bikes/new-ahooga-folding-bikes-folding-bikes-designed-developed-and-manufactured-in-belgium/",
    "notes": "Patented double-triangle frame, no frame hinge. Folded size listed as 72 x 69 x 37 cm without axis labels (assigned L 72, H 69, W 37). Max 120 kg rider plus bike. Upgradeable to E-MAX. Made in Belgium. The UK site lists a 7-speed Nexus version at 14.6 kg.",
-   "lastVerified": "2026-10-28"
+   "lastVerified": "2026-10-28",
+   "priceEUR": 1999,
+   "line": "A-MAX"
   },
   {
    "brand": "Ahooga",
    "model": "E-MAX Derailleur",
    "category": "Folding e-bike",
-   "priceNote": "EUR 2,999 RRP (BIKE Magazin); no GBP price found",
+   "priceNote": "RRP in euros per BIKE Magazin; shown in £ at an approximate rate",
    "weightKg": 17,
    "foldH": 69,
    "foldW": 37,
@@ -283,7 +297,9 @@
    "url": "https://ahooga.bike/pages/e-max-derailleur",
    "sourceUrl": "https://ahooga.bike/pages/e-max-derailleur",
    "notes": "Battery capacity and range not stated on the pages read. Folded size 72 x 69 x 37 cm (axes unlabelled). Max 120 kg rider plus bike. E-MAX Alfine: 18 kg, EUR 3,499.",
-   "lastVerified": "2026-10-28"
+   "lastVerified": "2026-10-28",
+   "priceEUR": 2999,
+   "line": "E-MAX"
   },
   {
    "brand": "Gocycle",
@@ -307,7 +323,8 @@
    "url": "https://gocycle.com/",
    "sourceUrl": "https://e-bikesdirect.co.uk/brands/gocycle/gocycle-g4-folding-electric-bike-8-1ah-battery-blue",
    "notes": "8.1 Ah, 36 V removable battery (about 300 Wh); range 'up to 65 km'. Weight 17.6 kg incl. kickstand and pedals. Folded 880 x 390 x 615 mm (L x W x H, kickstand up). Max rider 100 kg. 3.5 h fast charge. G4i: 375 Wh, up to 80 km, 17.1 kg; G4i+ about 16.7 kg. Price date unverified.",
-   "lastVerified": "2026-10-28"
+   "lastVerified": "2026-10-28",
+   "line": "G4"
   }
  ]
 }

@@ -15,7 +15,8 @@
         "https://www.condorcycles.com/collections/brompton-components-spares-bags"
       ],
       "paSkus": 345,
-      "paCategories": "Luggage and bags, lights, saddles, grips and pedals, mudguards, pumps and tools, phone mounts, electric-bike chargers and batteries, spare parts"
+      "paCategories": "Luggage and bags, lights, saddles, grips and pedals, mudguards, pumps and tools, phone mounts, electric-bike chargers and batteries, spare parts",
+      "offers": "Folding bike, Folding e-bike, Accessories, Spare parts"
     },
     "Tern": {
       "hq": "New Taipei City, Taiwan",
@@ -31,7 +32,8 @@
         "https://www.ternbicycles.com/en/news/releases/2011/06/tern-bicycles-spreads-its-wings",
         "https://www.bccresearch.com/company-index/profile/ternn"
       ],
-      "paCategories": "Accessories and parts, partly under sister brand BioLogic"
+      "paCategories": "Accessories and parts, partly under sister brand BioLogic",
+      "offers": "Folding bike, Folding e-bike, E-bike, Cargo e-bike, Accessories"
     },
     "Dahon": {
       "hq": "Offices in the US, Europe and China",
@@ -50,7 +52,8 @@
       ],
       "units": 1000000,
       "skuCount": 300,
-      "paCategories": "Components and spare parts (patented parts sold alongside bikes)"
+      "paCategories": "Components and spare parts (patented parts sold alongside bikes)",
+      "offers": "Folding bike, Folding e-bike, E-bike, Accessories, Spare parts"
     },
     "Ahooga": {
       "hq": "Belgium",
@@ -60,7 +63,8 @@
       "lastVerified": "2026-10-28",
       "sources": [
         "https://www.bike-magazin.de/en/bicycles/city-bikes/folding-bikes-or-folding-bikes/new-ahooga-folding-bikes-folding-bikes-designed-developed-and-manufactured-in-belgium/"
-      ]
+      ],
+      "offers": "Folding bike, Folding e-bike"
     },
     "Gocycle": {
       "website": "https://gocycle.com/",
@@ -71,7 +75,8 @@
         "https://road.cc/content/news/gocycle-g4-folding-e-bike-range-launched-282199",
         "https://www.moveelectric.com/e-bikes/e-bike-review-gocycle-g4-mclaren-designers-take-e-mobility"
       ],
-      "skuCount": 3
+      "skuCount": 3,
+      "offers": "Folding e-bike"
     },
     "Birdy": {
       "positioning": "Full-suspension folding bike designed by Riese & Müller and built by Pacific Cycles in Taiwan.",

@@ -5,27 +5,48 @@
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.CIEvents = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
-  const EVENT_TYPES = ['Launch', 'Price change', 'Partnership / distribution', 'Funding / financial', 'Recall', 'Market entry', 'Other'];
-  const IMPORTANCE = { 'Recall': 6, 'Price change': 5, 'Funding / financial': 4, 'Market entry': 4, 'Launch': 3, 'Partnership / distribution': 3, 'Other': 1 };
+  const EVENT_TYPES = ['Launch', 'Price change', 'Partnership / distribution', 'Funding / financial', 'Recall', 'Market entry', 'Review / test', 'Award / event', 'People', 'Other'];
+  const IMPORTANCE = { 'Recall': 6, 'Price change': 5, 'Funding / financial': 4, 'Market entry': 4, 'Launch': 3, 'Partnership / distribution': 3, 'People': 2, 'Award / event': 2, 'Review / test': 1, 'Other': 1 };
 
-  // Order matters: the first rule that matches wins. The title is tried first, then the summary.
-  const RULES = [
-    ['Recall', /\brecalls?(ed)?\b|\bsafety (notice|warning|alert|issue)s?\b|\bstop[- ]use\b|\bfire (risk|hazard)\b/i],
-    ['Price change', /\bprice (cuts?|drops?|rises?|hikes?|increases?|decreases?|reductions?|changes?|adjustments?|war)\b|\bprices? (cut|drop|rise|up|down|increase|fall)s?\b|\b(cuts?|slashes|lowers?|raises|hikes|increases) (its |their |the )?prices?\b|\bdiscount(s|ed)?\b|\bon sale\b|\bsale (starts?|ends?|event)\b|\bblack friday\b|\bcyber monday\b|\bnew price\b|\bnow (costs|from [£$€])/i],
-    ['Funding / financial', /\b(funding|fundrais\w+|invest(s|ed|ment|ments|or|ors)?|series [a-e]|seed round|acqui(res?|red|sition|sitions)|merger|merges|buyout|takeover|bankrupt\w*|insolven\w*|enters? administration|liquidat\w+|receivership|restructur\w+|ipo|valuation|revenues?|profits?|turnover|annual results|financial results|earnings|stake)\b|\braise[sd]? (?:an? )?(?:[a-z]{2,4}\s?)?[£$€]?\s?\d/i],
-    ['Market entry', /\b(enters?|entering|entered) (the )?[\w\- ]{0,20}(market|region|country)\b|\bexpan(ds|ding|sion|ded)\b|\b(launch(es|ed)?|arrives?|arrived|debuts?|lands?|opens?|now available|available) (in|across|to) (the )?(uk|u\.k\.|us|u\.s\.|usa|united states|america|canada|europe\w*|germany|france|netherlands|belgium|spain|italy|japan|china|australia|singapore|korea|india|asia|middle east|nordics?|scandinavia|apac|emea)\b|\b(uk|us|usa|european|german|french|china|chinese|japan\w*|australia\w*|asia\w*) (launch|expansion|entry|arrival|debut)\b|\bnew (market|markets|flagship|showroom|subsidiary)\b|\bopens? (a |its |new )?(first )?(\w+ ){0,2}(store|flagship|showroom|office|subsidiary|hq|headquarters)\b/i],
-    ['Partnership / distribution', /\b(partner(s|ed|ing|ship|ships)?|collaborat\w+|teams? up|tie[- ]?ups?|distribut\w+|wholesale|b2b|dealers?|stockists?|retail(er)? (network|partner)|supply (deal|agreement)|licen[cs]\w+|agreement|joint venture)\b/i],
-    ['Launch', /\b(launch\w*|unveil\w*|introduc\w+|reveal\w*|debut\w*|new (model|models|bike|bikes|e-?bikes?|range|series|edition|colou?rs?|version|generation|folding|cargo)|all-new|first look|pre-?order\w*|available now|release[sd]?|presents?|announces? (the )?(new|its)|kickstarter|crowdfund\w*)\b/i]
-  ];
-
-  function classify(title, summary) {
-    for (const text of [title, summary]) {
-      const t = String(text || '');
-      if (!t) continue;
-      for (const [type, re] of RULES) if (re.test(t)) return type;
+  // Each type has weighted patterns. A pattern that matches the headline counts three times as much as one that matches the
+  // summary, the type with the highest total wins, and the gap to the runner-up decides how sure the tag is. This replaces the old
+  // "first rule that matches wins", where the order of the list decided the answer.
+  const CTRY = 'uk|u\\.k\\.|us|u\\.s\\.|usa|united states|america|canada|europe\\w*|germany|france|netherlands|belgium|spain|italy|japan|china|australia|singapore|korea|india|asia|middle east|nordics?|scandinavia|apac|emea|taiwan|hong kong|ireland|sweden|norway|denmark|switzerland|austria|poland|brazil|mexico|uae|dubai';
+  const W = {
+    'Recall': [[/\brecalls?(ed)?\b/i, 8], [/\bstop[- ]use\b/i, 8], [/\bsafety (notice|warning|alert|issue|concern)s?\b/i, 6], [/\bfire (risk|hazard)\b/i, 5], [/\b(defect(ive)?|faulty|fault) (frame|fork|brake|battery|part|component)s?\b/i, 4], [/\burges? (owners|riders|customers)\b/i, 4], [/\bbattery (fire|overheat\w*)\b/i, 5]],
+    'Price change': [[/\bprice (cuts?|drops?|rises?|hikes?|increases?|decreases?|reductions?|changes?|adjustments?|war|rise)\b/i, 8], [/\bprices? (cut|drop|rise|up|down|increase|fall|hike)s?\b/i, 7], [/\b(cuts?|slashes|lowers?|raises|hikes|increases|reduces) (its |their |the )?(bike |e-?bike )?prices?\b/i, 8], [/\b(discount(s|ed)?|% off|\d+ ?% (off|saving))\b/i, 4], [/\bon sale\b/i, 3], [/\b(black friday|cyber monday|boxing day|summer sale|winter sale|sale (starts?|ends?|event))\b/i, 4], [/\bnew (rrp|price|pricing)\b/i, 5], [/\bnow (costs|from [£$€])/i, 4], [/\b(cheaper|more expensive|price war|tariffs?)\b/i, 3], [/\bpric(e|ing) (rise|increase) /i, 2]],
+    'Funding / financial': [[/\b(funding|fundrais\w+|series [a-e]\b|seed round|pre-?seed)\b/i, 8], [/\braise[sd]? (?:an? )?(?:[a-z]{2,4}\s?)?[£$€]?\s?\d/i, 8], [/\b(acqui(res?|red|sition|sitions)|merger|merges|buyout|takeover|buys)\b/i, 8], [/\b(bankrupt\w*|insolven\w*|enters? administration|in administration|liquidat\w+|receivership|restructur\w+|redundanc\w+)\b/i, 8], [/\b(ipo|valuation|unicorn|listing|shares?)\b/i, 5], [/\b(invest(s|ed|ment|ments|or|ors)?|backed by|backing)\b/i, 4], [/\b(revenues?|profits?|turnover|annual results|financial results|earnings|accounts|losses|loss-making|sales (rose|fell|grew|figures|up|down))\b/i, 5], [/\bstake\b/i, 3]],
+    'Market entry': [[/\b(enters?|entering|entered) (the )?[\w\- ]{0,20}(market|region|country)\b/i, 8], [new RegExp('\\b(enters?|entering|entered|expands? (in)?to) (the )?(' + CTRY + ')\\b', 'i'), 8], [new RegExp('\\b(launch(es|ed)?|arrives?|arrived|debuts?|lands?|now available|available|rolls? out|expands?|expanding|opens?) (in|across|to|into) (the )?(' + CTRY + ')\\b', 'i'), 8], [new RegExp('\\b(' + CTRY + ') (launch|expansion|entry|arrival|debut|rollout)\\b', 'i'), 6], [/\bnew (market|markets|flagship|showroom|subsidiary|distributor in)\b/i, 5], [/\bopens? (a |its |new )?(first |second )?(\w+ ){0,2}(store|flagship|showroom|office|subsidiary|hq|headquarters|factory)\b/i, 6], [/\bexpan(ds|ding|sion|ded)\b/i, 3], [/\binternational (launch|expansion)\b/i, 5], [/\bsets? up (a )?(\w+ ){0,2}(base|operation|presence)\b/i, 4]],
+    'Partnership / distribution': [[/\bpartner(s|ed|ing|ship|ships)?\b/i, 5], [/\b(collaborat\w+|collab)\b/i, 6], [/\b(teams? up|tie[- ]?ups?|joins? forces)\b/i, 5], [/\bdistribut\w+\b/i, 5], [/\b(wholesale|b2b|dealers?|stockists?|retail(er)? (network|partner|rollout)|resellers?)\b/i, 4], [/\b(supply (deal|agreement)|licen[cs]\w+|joint venture|exclusive (deal|agreement|rights))\b/i, 5], [/\bnow (stocked|available) (at|in|through) [A-Z]/, 4], [/\bagreement\b/i, 3], [/\b(appointed|named) .{0,20}(distributor|importer|agent)\b/i, 7]],
+    'Launch': [[/\b((re)?launch(es|ed|ing)?|unveil\w*|reveal\w*|debut\w*)\b/i, 5], [/\b(limited|special|anniversary|signature) edition\b/i, 5], [/\bintroduc(es|ed|ing)\b/i, 4], [/\bnew (model|models|bike|bikes|e-?bikes?|range|series|edition|colou?rs?|version|generation|folding|cargo|folder|collection|line)\b/i, 5], [/\b(all-new|first look|pre-?orders?|available now|goes on sale|on sale now)\b/i, 5], [/\b(announces?|announced) (the )?(new|its|a) (\w+ ){0,2}(bike|e-?bike|model|range|series|edition|folder|version|product|line|collection)s?\b/i, 5], [/\b(kickstarter|crowdfund\w*|indiegogo)\b/i, 5], [/\b(releases?|released|updates?|updated|upgrades?|upgraded|refreshe?s?|redesign\w*)\b/i, 3], [/\b(mk ?\d|mark \d|gen ?\d|v\d)\b/i, 1]],
+    'Review / test': [[/\breview(s|ed)?\b/i, 7], [/\b(tested|testing|hands-?on|first ride|long-?term test|road test|we (rode|tried|tested)|ridden)\b/i, 7], [/\b(verdict|ride report|rated|scored)\b/i, 4], [/\b(best|top \d+|ranked|buyer'?s? guide|buying guide|which (is|one)|guide to)\b/i, 4], [/\b(vs\.?|versus|compared|comparison|head[- ]to[- ]head)\b/i, 3], [/\b(how (to|does)|explained|everything you need)\b/i, 2]],
+    'Award / event': [[/\b(awards?|winners?|shortlisted|nominated|accolade|prize|best (of|in) (show|class|test))\b/i, 5], [/\b(wins?|won) (the |a |an )?(\w+ ){0,3}(award|prize|title|gold|silver|bronze)\b/i, 6], [/\b(eurobike|interbike|taipei cycle|china cycle|cycle show|bike show|expo|exhibition|trade fair|trade show|showcase|pop-?up|open day|roadshow)\b/i, 6], [/\b(sponsor\w*|ambassador|partners? with the (race|team|tour|club))\b/i, 3], [/\b(championships?|world cup|race|rally|festival|ride-?out|tour de)\b/i, 3], [/\b(anniversary|celebrates?|celebrating|\d+ years of)\b/i, 3]],
+    'People': [[/\b(appoints?|appointed|appointment|hires?|hired|recruits?)\b/i, 6], [/\bchief (financial|executive|operating|technology|marketing|product|commercial|sales|design) officer\b/i, 7], [/\b(names?|named) (a |its |the )?(new )?(ceo|chief|head|director|chair\w*|president|managing)\b/i, 6], [/\b(new|incoming|outgoing|former) (ceo|cfo|coo|cto|cmo|md|chair\w*|president|managing director|head of|director|founder)\b/i, 7], [/\b(joins?|joined) (as|the (board|team))\b/i, 5], [/\b(steps? down|stepping down|resigns?|resigned|retires?|retiring|departs?|promoted|succeeds?|succession)\b/i, 6], [/\b(ceo|cfo|managing director|chairman|chair)\b/i, 2]]
+  };
+  const MIN_SCORE = 4;
+  // Returns the tag, how sure it is ('high' / 'medium' / 'low') and the words that triggered it, so the page can say why.
+  function classifyDetailed(title, summary) {
+    const t = String(title || ''), s = String(summary || ''), scores = {}, why = {};
+    for (const type of Object.keys(W)) {
+      const hit = [], hits = [];
+      for (const [re, w] of W[type]) {
+        const mt = t.match(re), ms = !mt && s ? s.match(re) : null;   // each pattern counts once: in the headline (x3) or, failing that, the summary
+        const m = mt || ms; if (!m) continue;
+        const k = m[0].trim().toLowerCase(); if (hits.some((h) => h === k || h.includes(k) || k.includes(h))) continue;   // two patterns matching the same words are one signal, not two
+        hit.push(mt ? w * 3 : w); hits.push(k);
+      }
+      // strongest signal in full plus a third of the rest, so several patterns that say the same thing do not outvote a different, clearer signal
+      hit.sort((x, y) => y - x);
+      const sc = (hit.length ? hit[0] + 0.35 * hit.slice(1).reduce((x, y) => x + y, 0) : 0) * (type === 'Recall' ? 1.25 : 1);   // a safety recall outranks anything else in the same headline
+      if (sc) { scores[type] = Math.round(sc * 10) / 10; why[type] = hits.slice(0, 3); }
     }
-    return 'Other';
+    const ranked = Object.keys(scores).sort((a, b) => scores[b] - scores[a] || (IMPORTANCE[b] || 1) - (IMPORTANCE[a] || 1));
+    if (!ranked.length || scores[ranked[0]] < MIN_SCORE) return { type: 'Other', confidence: 'low', why: [], scores };
+    const top = ranked[0], second = ranked[1] ? scores[ranked[1]] : 0, gap = scores[top] - second;
+    const confidence = scores[top] >= 12 && gap >= 6 ? 'high' : scores[top] >= 8 && gap >= 3 ? 'medium' : 'low';
+    return { type: top, confidence, why: why[top], scores };
   }
+  const classify = (title, summary) => classifyDetailed(title, summary).type;
 
   const REGION_WORDS = {
     US: /\b(us|u\.s\.|usa|united states|america\w*|canada|canadian)\b/i,
@@ -124,5 +145,5 @@
     return `<div style="font-family:Arial,sans-serif;max-width:640px"><h2 style="margin:0 0 4px">${escHtml(lines[0])}</h2><p>${escHtml(lines[1])}</p>${li ? `<h3>Top changes</h3><ul>${li}</ul>` : ''}${tail.map((l) => `<p>${escHtml(l)}</p>`).join('')}</div>`;
   }
 
-  return { EVENT_TYPES, IMPORTANCE, classify, detectRegions, ageDays, momentum, countsByType, buildDigest, digestText, digestHtml, fmtDate };
+  return { EVENT_TYPES, IMPORTANCE, classify, classifyDetailed, detectRegions, ageDays, momentum, countsByType, buildDigest, digestText, digestHtml, fmtDate };
 });

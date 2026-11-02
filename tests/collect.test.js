@@ -62,13 +62,33 @@ test('checklist: electric fields only for e-bikes, not-published counts as done'
   a.foldH=1;a.foldW=1;a.foldL=1;assert.equal(K.filled(a,'fold'),true);
 });
 test('AI brief lists missing keys per model and asks for JSON only',()=>{
-  const p={id:'9',brand:'Tern',model:'Link C8',priceGBP:900,weightKg:13};
+  const p={id:'9',brand:'Tern',model:'Link C8',line:'Link',priceGBP:900,weightKg:13};
   const t=K.buildBrief([{p,missing:K.missingFor(p).slice(0,3)}]);
-  assert.match(t,/id: 9/);assert.match(t,/missing: fold, wheelIn, gears/);assert.match(t,/Return ONLY valid JSON/);assert.match(t,/already known: price £900, 13 kg/);
+  assert.match(t,/id: 9/);assert.match(t,/missing: fold, wheelIn, gears/);assert.match(t,/Return ONLY valid JSON/);assert.match(t,/already known: price £900, Link, 13 kg/);
   const n=K.buildBrief([{p:null,brand:'Strida',website:'https://strida.com'}]);assert.match(n,/NEW MODELS|FIND MODELS/);assert.match(n,/Strida/);
 });
 test('every field the importer can write passes server validation',()=>{
   const o={brand:'B',model:'M'};for(const f of K.FIELDS){if(f.k==='fold'){o.foldH=1;o.foldW=2;o.foldL=3}else o[f.k]=f.k==='sourceUrl'?'https://a.com':/Kg|Km|Wh|price|launch/i.test(f.k)?(f.k==='launch'?'2025':5):'x'}
   o.na=['saddle'];const r=cleanProduct(o);assert.deepEqual(r.bad,[]);assert.deepEqual(r.out.na,['saddle']);assert.equal(r.out.maxLoadKg,5);assert.equal(r.out.riderHeight,'x');
   assert.ok(fs.readFileSync('public/collect.js','utf8').includes('window'));
+});
+
+test('one import reads models and brand facts, and creates the right kind of record for each',()=>{
+  const j=K.readInput(JSON.stringify({products:[{brand:'Tern',model:'Link C8',weightKg:13.3,line:'Link'}],brands:[{brand:'Tern',units:'65,000',paSkus:'140 products',offers:'Folding bike, Accessories',figuresYear:'FY2024',sourceUrl:'https://example.com/r',regionEMEA:'UK, Germany'}]}),{});
+  assert.equal(j.recs.length,1);assert.equal(j.recs[0].values.line,'Link');assert.equal(j.brandRecs.length,1);
+  const b=j.brandRecs[0].values;assert.equal(b.units,65000);assert.equal(b.paSkus,140);assert.equal(b.figuresYear,'2024');assert.equal(b.offers,'Folding bike, Accessories');assert.equal(b.regionEMEA,'UK, Germany');
+  const bad=K.readInput('brand,units,offers\nTern,abc,Hoverboard\n',{});assert.equal(bad.brandRecs.length,1);assert.equal(bad.brandRecs[0].rejected.length,2);
+});
+test('a spreadsheet with brand columns and no model column is read as brand rows',()=>{
+  const t=K.readInput('brand,Units per year,Revenue,SKUs,P&A products\nDahon,"1,000,000",70.5,300,\nTern,,,22,140\n',{});
+  assert.equal(t.recs.length,0);assert.equal(t.brandRecs.length,2);assert.equal(t.brandRecs[0].values.units,1000000);assert.equal(t.brandRecs[1].values.paSkus,140);
+  const d=K.diffBrand(t.brandRecs[1],{skuCount:22,paSkus:''});assert.deepEqual(d.map(x=>[x.k,x.status]).sort(),[['paSkus','new'],['skuCount','same']]);
+});
+test('euro and dollar prices are accepted but do not count as missing',()=>{
+  const r=K.toRecord({priceEUR:'€1,999',priceUSD:'$899'});assert.equal(r.values.priceEUR,1999);assert.equal(r.values.priceUSD,899);
+  assert.ok(!K.missingFor({brand:'A',model:'B',priceEUR:1999}).some(f=>f.k==='priceGBP'));assert.ok(!K.missingFor({brand:'A',model:'B'}).some(f=>f.k==='priceEUR'));
+});
+test('the brand brief names each brand, what is known and what is missing',()=>{
+  const t=K.buildBrandBrief([{brand:'Tern',website:'https://ternbicycles.com',known:'22 models',missing:['units','paSkus']}]);
+  assert.match(t,/\{"brands":\[/);assert.match(t,/Tern \| https:\/\/ternbicycles.com/);assert.match(t,/missing: units, paSkus/);assert.match(t,/null is the right answer/);
 });

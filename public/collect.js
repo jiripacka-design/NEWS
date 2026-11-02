@@ -14,7 +14,10 @@
   /* ---------- the fields (same list and order as a Brompton product page) ---------- */
   // k = key on the model, l = label, g = group, h = hint (format + example), e = only for electric bikes
   const FIELDS = [
+    { k: 'line', l: 'Product line', g: 'Headline', h: 'the family the model belongs to, e.g. C Line, P Line, Verge' },
     { k: 'priceGBP', l: 'Price (£)', g: 'Headline', h: 'number, £ incl. VAT, e.g. 1809' },
+    { k: 'priceEUR', l: 'Price (€)', g: 'Headline', h: 'number, only if the maker has no £ price, e.g. 1999', opt: true },
+    { k: 'priceUSD', l: 'Price ($)', g: 'Headline', h: 'number, only if the maker has no £ price, e.g. 899', opt: true },
     { k: 'weightKg', l: 'Weight (kg)', g: 'Headline', h: 'number in kg, e.g. 12.5' },
     { k: 'fold', l: 'Folded size', g: 'Headline', h: 'height x width x depth, e.g. 64.5 x 58.5 x 27 cm' },
     { k: 'wheelIn', l: 'Wheel size', g: 'Headline', h: 'e.g. 16 or 20' },
@@ -57,11 +60,74 @@
     { k: 'rangeKm', l: 'Range (km)', g: 'Electric', h: 'number in km, the maker\'s claim; put the original claim in notes', e: true },
     { k: 'sourceUrl', l: 'Source link', g: 'Record', h: 'https:// link to the page the values came from' }
   ];
+  /* Brand-level facts: the same import reads these when a row has a brand but no model */
+  const BFIELDS = [
+    { k: 'units', l: 'Bikes sold per year', h: 'whole number for one year; give the year in figuresYear' },
+    { k: 'revenueGBPm', l: 'Revenue (£m)', h: 'number in £ millions, group sales' },
+    { k: 'skuCount', l: 'Models listed (SKUs)', h: 'whole number of bike models or variants on sale now' },
+    { k: 'paSkus', l: 'P&A products', h: 'whole number of parts and accessories products on sale' },
+    { k: 'paCategories', l: 'P&A offering', h: 'comma separated kinds, e.g. luggage, lights, locks, saddles' },
+    { k: 'offers', l: 'Offers', h: 'any of: Folding bike, Folding e-bike, E-bike, Cargo e-bike, Accessories, Spare parts' },
+    { k: 'figuresYear', l: 'Year of the figures', h: '4 digits, e.g. 2024' },
+    { k: 'hq', l: 'Headquarters', h: 'city, country' },
+    { k: 'founded', l: 'Founded', h: 'year' },
+    { k: 'employees', l: 'Employees', h: 'number or range' },
+    { k: 'ownership', l: 'Ownership', h: 'e.g. Private, listed on HKEX' },
+    { k: 'website', l: 'Website', h: 'https:// address' },
+    { k: 'positioning', l: 'Positioning', h: 'one sentence' },
+    { k: 'regionUS', l: 'Sells in: Americas', h: 'comma separated countries' },
+    { k: 'regionEMEA', l: 'Sells in: Europe, Middle East, Africa', h: 'comma separated countries' },
+    { k: 'regionAPAC', l: 'Sells in: Asia Pacific', h: 'comma separated countries' },
+    { k: 'regionCHINA', l: 'Sells in: Greater China', h: 'comma separated countries' },
+    { k: 'sourceUrl', l: 'Source link', h: 'https:// page the figures came from' }
+  ];
+  const BLABEL = Object.fromEntries(BFIELDS.map((f) => [f.k, f.l]));
+  const BALIAS = { units: ['units', 'units per year', 'bikes sold', 'annual units', 'volume', 'annual volume', 'bikes per year', 'units sold'], revenueGBPm: ['revenue', 'revenue gbp m', 'revenue £m', 'sales', 'turnover', 'revenue (£m)'], skuCount: ['skus', 'sku count', 'models', 'number of models', 'models listed', 'range size'], paSkus: ['p&a', 'p&a products', 'pa products', 'pa skus', 'accessory skus', 'parts and accessories', 'accessories count'], paCategories: ['p&a offering', 'pa offering', 'accessory categories', 'accessories offered'], offers: ['offers', 'product types', 'sells'], figuresYear: ['figures year', 'year of figures', 'data year'], hq: ['hq', 'headquarters', 'head office'], founded: ['founded', 'year founded'], employees: ['employees', 'headcount', 'staff'], ownership: ['ownership', 'owner'], website: ['website', 'site', 'url'], positioning: ['positioning', 'description'], regionUS: ['americas', 'region us', 'regionus', 'north america'], regionEMEA: ['emea', 'europe', 'region emea'], regionAPAC: ['apac', 'asia pacific', 'region apac'], regionCHINA: ['china', 'greater china', 'region china'], sourceUrl: ['source', 'source url', 'source link', 'sources'] };
+  const BLOOKUP = {}; BFIELDS.forEach((f) => { BLOOKUP[f.k.toLowerCase()] = f.k; BLOOKUP[f.l.toLowerCase().replace(/[^a-z0-9]+/g, '')] = f.k; (BALIAS[f.k] || []).forEach((a) => { BLOOKUP[a.toLowerCase().replace(/[^a-z0-9]+/g, '')] = f.k; }); });
+  const bkeyOf = (label) => BLOOKUP[String(label == null ? '' : label).toLowerCase().replace(/[^a-z0-9]+/g, '')] || null;
+  const OFFERS = ['Folding bike', 'Folding e-bike', 'E-bike', 'Cargo e-bike', 'Accessories', 'Spare parts'];
+  function bcoerce(key, raw) {
+    if (raw == null) return { skip: true };
+    const s = squash(Array.isArray(raw) ? raw.join(', ') : raw); if (EMPTY.test(s)) return { skip: true };
+    switch (key) {
+      case 'units': case 'skuCount': case 'paSkus': { const n = firstNum(s); if (n == null) return { why: 'no number found' }; const m = /\bm(illion)?\b/i.test(s) ? 1e6 : /\bk\b/i.test(s) ? 1e3 : 1; return { set: { [key]: Math.round(n * m) } }; }
+      case 'revenueGBPm': { if (/[$€]/.test(s) && !/£/.test(s)) return { why: 'revenue must be in £' }; const n = firstNum(s); if (n == null) return { why: 'no number found' }; return { set: { revenueGBPm: round(/\bbn?\b|billion/i.test(s) ? n * 1000 : n, 1) } }; }
+      case 'figuresYear': { const y = s.match(/(?:^|[^0-9])((?:19|20)\d{2})(?!\d)/); return y ? { set: { figuresYear: y[1] } } : { why: 'need a 4-digit year' }; }
+      case 'website': case 'sourceUrl': return /^https:\/\//i.test(s) ? { set: { [key]: s.slice(0, 1000) } } : { why: 'link must start with https://' };
+      case 'offers': { const parts = s.split(/[,;|]/).map((x) => x.trim()).filter(Boolean), ok = OFFERS.filter((o) => parts.some((x) => norm(x) === norm(o))); return ok.length === parts.length ? { set: { offers: ok.join(', ') } } : { why: 'use: ' + OFFERS.join(', ') }; }
+      case 'positioning': return { set: { positioning: s.slice(0, 400) } };
+      default: return { set: { [key]: s.slice(0, TEXT_MAX) } };
+    }
+  }
+  function toBrandRecord(o) {
+    const rec = { brand: '', values: {}, notes: [], rejected: [] };
+    Object.keys(o).forEach((rk) => {
+      if (/^brand$/i.test(rk)) { rec.brand = squash(o[rk]); return; }
+      if (/^(record|type)$/i.test(rk)) return;
+      if (/^notes?$/i.test(rk)) { rec.note = squash(o[rk]).slice(0, 400); return; }
+      const k = bkeyOf(rk); if (!k) return;
+      const r = bcoerce(k, o[rk]); if (r.skip) return;
+      if (r.why) { rec.rejected.push({ key: k, raw: squash(o[rk]).slice(0, 80), why: r.why }); return; }
+      Object.assign(rec.values, r.set);
+    });
+    return rec;
+  }
+  // Rows for the preview: same idea as diffRecord. now(k) gives what the tracker holds today for that brand.
+  function diffBrand(rec, now) {
+    return Object.keys(rec.values).map((k) => {
+      const c = now[k], has = c != null && c !== '' && !(Array.isArray(c) && !c.length), cs = Array.isArray(c) ? c.join(', ') : String(c == null ? '' : c), n = rec.values[k];
+      const eq = typeof n === 'number' ? Math.abs(Number(c) - n) < 0.01 : norm(cs) === norm(n);
+      return { k, keys: [k], label: BLABEL[k] || k, cur: has ? cs : '', next: String(n), status: !has ? 'new' : eq ? 'same' : 'differs' };
+    });
+  }
   const LABEL = Object.fromEntries(FIELDS.map((f) => [f.k, f.l]));
   LABEL.foldH = 'Folded height'; LABEL.foldW = 'Folded width'; LABEL.foldL = 'Folded depth';
   const TEXT_MAX = 300;
 
   const ALIASES = {
+    line: ['line', 'product line', 'family', 'series', 'range', 'collection'],
+    priceEUR: ['price eur', 'price (€)', 'eur', 'euro price', 'price euro'],
+    priceUSD: ['price usd', 'price ($)', 'usd', 'us price', 'dollar price'],
     priceGBP: ['price', 'rrp', 'msrp', 'retail price', 'price gbp', 'uk price', 'price from'],
     weightKg: ['weight', 'bike weight', 'weight kg', 'weight from', 'total weight', 'weight (kg)'],
     fold: ['folded size', 'folded dimensions', 'folded', 'dimensions folded', 'folded size (hxwxd)', 'size folded'],
@@ -118,7 +184,7 @@
   /* ---------- turning raw text into values ---------- */
   const EMPTY = /^(?:|-+|—|–|n\/?a|na|null|none|unknown|undefined|not (?:found|published|available|specified|stated|listed)|tbc|tbd|\?+)$/i;
   const round = (n, d) => { const m = Math.pow(10, d == null ? 2 : d); return Math.round(n * m) / m; };
-  const firstNum = (s) => { const m = String(s).replace(/(\d),(\d{3})/g, '$1$2').match(/-?\d+(?:[.,]\d+)?/); return m ? parseFloat(m[0].replace(',', '.')) : null; };
+  const firstNum = (s) => { const m = String(s).replace(/(\d),(?=\d{3}(?!\d))/g, '$1').match(/-?\d+(?:[.,]\d+)?/); return m ? parseFloat(m[0].replace(',', '.')) : null; };
   const allNums = (s) => (String(s).replace(/(\d),(\d{3})/g, '$1$2').match(/\d+(?:\.\d+)?/g) || []).map(parseFloat);
   const squash = (s) => String(s).replace(/[*†‡]+/g, '').replace(/\s+/g, ' ').trim();
 
@@ -144,6 +210,7 @@
         if (/[$€]/.test(s) && !/£/.test(s)) return { why: 'price must be in £' };
         const n = firstNum(s); return n == null ? { why: 'no number found' } : { set: { priceGBP: round(n) } };
       }
+      case 'priceEUR': case 'priceUSD': { const n = firstNum(s); return n == null ? { why: 'no number found' } : { set: { [key]: round(n) } }; }
       case 'weightKg': case 'maxLoadKg': {
         const n = firstNum(s); if (n == null) return { why: 'no number found' };
         const v = /\blbs?\b|pounds?/i.test(s) ? n * 0.45359 : /\bg\b|grams?/i.test(s) && !/kg/i.test(s) ? n / 1000 : n;
@@ -233,13 +300,18 @@
     if (/```/.test(t) || /^[\[{]/.test(t) || /\{\s*"[A-Za-z_]+"\s*:/.test(t)) return 'json';
     const head = t.split(/\r?\n/, 1)[0].toLowerCase();
     if (/(^|[,\t"])\s*model\s*([,\t"]|$)/.test(head) && /(^|[,\t"])\s*brand\s*([,\t"]|$)/.test(head)) return 'table';
+    // a header row with a brand column and at least one brand-level column (units, SKUs, P&A ...) is a brand table
+    const cols = head.split(/[,\t]/).map((x) => x.replace(/"/g, '').trim());
+    if (cols.length > 1 && cols.some((c) => /^brand$/i.test(c)) && cols.some((c) => bkeyOf(c) && !keyOf(c))) return 'table';
     return 'text';
   };
 
   // Everything that comes back is a list of { id, brand, model, values, na, notes, rejected, unknown }
   function readInput(text, ctx) {
     ctx = ctx || {};
-    const kind = detect(text), out = { kind, recs: [], error: '' };
+    const kind = detect(text), out = { kind, recs: [], brandRecs: [], error: '' };
+    const hasModelCol = (o) => Object.keys(o).some((k) => /^(model|id)$/i.test(k) || keyOf(k) === 'model');
+    const brandish = (o) => o && typeof o === 'object' && !hasModelCol(o) && Object.keys(o).some((k) => bkeyOf(k) && !keyOf(k));
     const fromObject = (o) => {
       const fields = {}, extra = { na: [] };
       Object.keys(o).forEach((rawKey) => {
@@ -255,11 +327,14 @@
         let t = String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
         const a = t.search(/[\[{]/), b = Math.max(t.lastIndexOf('}'), t.lastIndexOf(']')); if (a < 0 || b < a) throw new Error('no JSON found');
         let j = JSON.parse(t.slice(a, b + 1));
-        if (!Array.isArray(j)) j = Array.isArray(j.products) ? j.products : j.product ? [j.product] : [j];
+        if (!Array.isArray(j)) { if (Array.isArray(j.brands)) out.brandRecs = j.brands.filter((o) => o && typeof o === 'object').map(toBrandRecord); j = Array.isArray(j.products) ? j.products : j.product ? [j.product] : (j.brands ? [] : [j]); }
+        else { const bs = j.filter(brandish); if (bs.length) { out.brandRecs = bs.map(toBrandRecord); j = j.filter((o) => !brandish(o)); } }
         out.recs = j.filter((o) => o && typeof o === 'object').map(fromObject);
       } else if (kind === 'table') {
         const rows = parseDelimited(String(text).trim()), head = rows[0].map((h) => h.trim());
-        out.recs = rows.slice(1).map((r) => { const o = {}; head.forEach((h, i) => { if (h) o[h] = r[i]; }); return fromObject(o); });
+        const objs = rows.slice(1).map((r) => { const o = {}; head.forEach((h, i) => { if (h) o[h] = r[i]; }); return o; });
+        const isBrandTable = !head.some((h) => /^(model|id)$/i.test(h) || keyOf(h) === 'model') && head.some((h) => bkeyOf(h) && !keyOf(h));
+        if (isBrandTable) out.brandRecs = objs.map(toBrandRecord); else out.recs = objs.map(fromObject);
       } else {
         const p = parseSpecText(text), rec = toRecord(p.fields);
         out.recs = [Object.assign(rec, { id: '', brand: ctx.brand || squash(p.fields.brand || ''), model: ctx.model || squash(p.fields.model || ''), na: [], unknown: p.unknown })];
@@ -267,13 +342,15 @@
       }
     } catch (e) { out.error = 'Could not read that: ' + e.message; }
     out.recs = out.recs.filter((r) => r.model || Object.keys(r.values).length);
+    out.brandRecs = out.brandRecs.filter((r) => r.brand && (Object.keys(r.values).length || r.rejected.length));
     return out;
   }
 
   /* ---------- comparing with what is already saved ---------- */
   const isElectric = (p) => /e-bike|electric/i.test(p.category || '') || /electric/i.test(p.model || '') || !!(p.motor || p.batteryWh);
-  const filled = (p, k) => (k === 'fold' ? !!(p.foldH && p.foldW && p.foldL) : p[k] != null && p[k] !== '');
-  const applicable = (p) => FIELDS.filter((f) => !f.e || isElectric(p));
+  const has = (v) => v != null && v !== '';
+  const filled = (p, k) => (k === 'fold' ? !!(p.foldH && p.foldW && p.foldL) : k === 'priceGBP' ? has(p.priceGBP) || has(p.priceEUR) || has(p.priceUSD) : has(p[k]));
+  const applicable = (p) => FIELDS.filter((f) => (!f.e || isElectric(p)) && !f.opt);
   const missingFor = (p) => applicable(p).filter((f) => !filled(p, f.k) && !(p.na || []).includes(f.k));
   const progress = (p) => { const a = applicable(p), done = a.filter((f) => filled(p, f.k) || (p.na || []).includes(f.k)).length; return { done, total: a.length, pct: Math.round((done / a.length) * 100) }; };
   const same = (a, b) => (typeof a === 'number' || typeof b === 'number' ? Math.abs(Number(a) - Number(b)) < 0.01 : norm(a) === norm(b));
@@ -312,7 +389,8 @@
   const gbpTxt = (v) => '£' + Math.round(v).toLocaleString('en-GB');
   function knownFacts(p) {
     const b = [];
-    if (p.priceGBP != null && p.priceGBP !== '') b.push('price ' + gbpTxt(p.priceGBP));
+    if (p.priceGBP != null && p.priceGBP !== '') b.push('price ' + gbpTxt(p.priceGBP)); else if (p.priceEUR) b.push('price EUR ' + p.priceEUR); else if (p.priceUSD) b.push('price USD ' + p.priceUSD);
+    if (p.line) b.push(p.line);
     if (p.weightKg) b.push(p.weightKg + ' kg'); if (p.gears) b.push(p.gears); if (p.wheelIn) b.push(p.wheelIn + ' in wheels'); if (p.category) b.push(p.category);
     return b.join(', ');
   }
@@ -344,7 +422,21 @@
     return L.join('\n');
   }
 
-  const api = { FIELDS, LABEL, ALIASES, keyOf, coerce, parseFold, parseSpecText, parseDelimited, detect, readInput, toRecord, isElectric, filled, applicable, missingFor, progress, findExisting, diffRecord, buildBrief, knownFacts };
+  const BKEY = ['units', 'revenueGBPm', 'skuCount', 'paSkus', 'paCategories', 'offers', 'figuresYear', 'hq', 'website', 'regionEMEA'];
+  function buildBrandBrief(items) {
+    const L = [], guide = BFIELDS.filter((f) => f.k !== 'sourceUrl').map((f) => `- ${f.k}: ${f.l}. ${f.h}`).join('\n');
+    L.push('You are helping a UK bicycle retailer complete a competitor profile sheet for folding-bike and e-bike brands. Use a web search / browsing tool. Work through the brands below one at a time.', '',
+      'RULES', '- Use the brand\'s own site, annual reports, filings or reputable trade press (BikeBiz, Cycling Industry News, Bike Europe, Bicycle Retailer). Prefer the most recent full year.',
+      '- Never guess, estimate or fill from memory. If you cannot find a value, use null. Volumes (units) and revenue are often not published: null is the right answer then.',
+      '- If a figure is the company\'s own claim rather than audited or reported, say so in notes and still give it.',
+      '- Numbers are plain numbers with no units, symbols or commas. Revenue is in £ millions (convert and say how in notes). Give the year the figures are for in figuresYear.',
+      '- sourceUrl is the exact page address you used (must start with https://). Only return the fields listed for each brand.',
+      '- Return ONLY valid JSON, nothing before or after it, in exactly this shape:', '',
+      '{"brands":[{"brand":"<brand>","<field>":<value>,"sourceUrl":"https://...","notes":""}]}', '', 'FIELD GUIDE (key: label. format)', guide, '', 'BRANDS');
+    items.forEach((x, i) => L.push(`${i + 1}. ${x.brand}${x.website ? ' | ' + x.website : ''}`, `   already known: ${x.known || 'nothing yet'}`, `   missing: ${x.missing.join(', ')}`));
+    return L.join('\n');
+  }
+  const api = { BFIELDS, BKEY, bkeyOf, toBrandRecord, diffBrand, buildBrandBrief, FIELDS, LABEL, ALIASES, keyOf, coerce, parseFold, parseSpecText, parseDelimited, detect, readInput, toRecord, isElectric, filled, applicable, missingFor, progress, findExisting, diffRecord, buildBrief, knownFacts };
 
   /* ===================================================================  PAGE  =================================================================== */
   api.mount = function (X) {
@@ -364,7 +456,7 @@
           <div class="sub">Paste a spec table copied from a product page, an AI answer (JSON) or a spreadsheet (CSV), or drop a file on the box. For a pasted spec table, say which model it is for.</div>
           <div class="cl-ctx"><label>Brand<select class="field" id="clBrand"></select></label><label>Model<input class="field" id="clModel" list="clModels" placeholder="needed for pasted spec text" autocomplete="off"></label><datalist id="clModels"></datalist></div>
           <textarea class="field cl-text" id="clText" spellcheck="false" placeholder="Weight: 12.5 kg&#10;Folded size: 25.3&quot; H x 23&quot; W x 10.6&quot; D&#10;Brakes: Brompton Dual Pivot Calipers&#10;&#10;or paste JSON from an AI model, or a CSV with brand and model columns"></textarea>
-          <div class="source-actions"><button type="button" class="primary" id="clRead">Read it</button><button type="button" class="imagebtn" id="clPick">Choose a file</button><button type="button" class="imagebtn" id="clClear">Clear</button><input type="file" id="clFile" accept=".csv,.json,.txt,.md,text/*" hidden></div>
+          <div class="source-actions"><button type="button" class="primary" id="clRead">Read it</button><button type="button" class="imagebtn" id="clTplM" title="Every model and every spec as a spreadsheet, blanks included">Download models to fill in</button><button type="button" class="imagebtn" id="clTplB" title="Every brand with volumes, SKUs, P&A and markets, blanks included">Download brands to fill in</button><button type="button" class="imagebtn" id="clPick">Choose a file</button><button type="button" class="imagebtn" id="clClear">Clear</button><input type="file" id="clFile" accept=".csv,.json,.txt,.md,text/*" hidden></div>
           <div id="clPreview"></div></div>
         <div class="panel" id="clListBox"></div>
         <div class="panel" id="clBriefBox"></div>`;
@@ -391,15 +483,22 @@
         rec.rows = diffRecord(rec, m.p); rec.rows.forEach((x) => { x.on = x.status === 'new'; });
         rec.problem = !rec.brand ? 'Choose a brand above.' : !rec.model && !m.p ? 'Type the model name above.' : '';
       });
+      (r.brandRecs || []).forEach((rec) => {
+        const nm = C.brands.find((b) => norm(b) === norm(rec.brand)); rec.exists = !!nm; rec.brand = nm || rec.brand;
+        rec.rows = diffBrand(rec, nm ? X.brandNow(nm) : {}); rec.rows.forEach((x) => { x.on = x.status === 'new' || !nm; });
+        // The year belongs to the volume/revenue figures. If those would not be replaced, do not stamp the old figure with the new year.
+        const stale = rec.rows.some((x) => (x.k === 'units' || x.k === 'revenueGBPm') && x.status === 'differs' && !x.on), yr = rec.rows.find((x) => x.k === 'figuresYear');
+        if (stale && yr && yr.status !== 'same') { yr.on = false; yr.hint = 'Left off: it would label the figure you already have with a different year. Tick bikes sold per year / revenue as well to use it.'; }
+      });
       ui.imp = r; renderPreview();
     }
-    function nChosen() { return ui.imp ? ui.imp.recs.reduce((n, r) => n + (r.problem ? 0 : r.rows.filter((x) => x.on).length) + (r.problem ? 0 : r.na.length ? 1 : 0), 0) : 0; }
+    function nChosen() { return ui.imp ? (ui.imp.brandRecs || []).reduce((n, r) => n + r.rows.filter((x) => x.on && x.k !== 'sourceUrl').length + (r.exists ? 0 : 1), 0) + ui.imp.recs.reduce((n, r) => n + (r.problem ? 0 : r.rows.filter((x) => x.on).length) + (r.problem ? 0 : r.na.length ? 1 : 0), 0) : 0; }
     function renderPreview() {
       const box = $('#clPreview', root); if (!box) return;
       const r = ui.imp; if (!r) { box.innerHTML = ''; return; }
-      if (r.error || !r.recs.length) { box.innerHTML = `<div class="pm-empty"><strong>Nothing to import</strong><span>${esc(r.error || 'No models or values were found in that text.')}</span></div>`; return; }
+      if (r.error || (!r.recs.length && !(r.brandRecs || []).length)) { box.innerHTML = `<div class="pm-empty"><strong>Nothing to import</strong><span>${esc(r.error || 'No models or values were found in that text.')}</span></div>`; return; }
       const kindTxt = { json: 'JSON (AI answer)', table: 'spreadsheet rows', text: 'spec text' }[r.kind];
-      box.innerHTML = `<div class="sub" style="margin-top:12px">Read as ${kindTxt}: ${r.recs.length} model${r.recs.length === 1 ? '' : 's'}. Blank-filling values are ticked; values that would replace something you already have are not.</div>` + r.recs.map((rec, i) => {
+      box.innerHTML = `<div class="sub" style="margin-top:12px">Read as ${kindTxt}: ${r.recs.length} model${r.recs.length === 1 ? '' : 's'}${(r.brandRecs || []).length ? ` and ${r.brandRecs.length} brand${r.brandRecs.length === 1 ? '' : 's'}` : ''}. Blank-filling values are ticked; values that would replace something you already have are not.</div>` + r.recs.map((rec, i) => {
         const nn = rec.rows.filter((x) => x.status === 'new').length, nd = rec.rows.filter((x) => x.status === 'differs').length, ns = rec.rows.filter((x) => x.status === 'same').length;
         const tag = rec.match ? `<span class="chip">Existing model${rec.how === 'near' ? ' (closest match)' : ''}</span>` : '<span class="chip">New model</span>';
         const body = rec.rows.filter((x) => x.status !== 'same').map((x) => `<tr><td><input type="checkbox" data-r="${i}" data-k="${esc(x.k)}"${x.on ? ' checked' : ''} aria-label="Use ${esc(x.label)}"></td><td>${esc(x.label)}</td><td class="muted">${esc(x.cur) || '—'}</td><td>${esc(x.next)}</td><td><span class="${x.status === 'new' ? 'cl-new' : 'cl-diff'}">${x.status === 'new' ? 'fills a blank' : 'replaces'}</span></td></tr>`).join('');
@@ -409,10 +508,16 @@
           ${rec.notes.length ? `<div class="sub">Converted: ${esc(rec.notes.join('; '))}</div>` : ''}
           ${rec.rejected.length ? `<details class="gaps"><summary>Could not use (${rec.rejected.length})</summary><div class="sub">${rec.rejected.map((x) => `${esc(LABEL[x.key] || x.key)}: "${esc(x.raw)}" (${esc(x.why)})`).join('<br>')}</div></details>` : ''}
           ${rec.unknown && rec.unknown.length ? `<details class="gaps"><summary>Lines not recognised (${rec.unknown.length})</summary><div class="sub">${rec.unknown.slice(0, 40).map(esc).join('<br>')}</div></details>` : ''}</div>`;
-      }).join('') + `<div class="source-actions" style="margin-top:12px"><button type="button" class="primary" id="clApply"${nChosen() ? '' : ' disabled'}>Add ${nChosen()} value${nChosen() === 1 ? '' : 's'} to the matrix</button></div>`;
+      }).join('') + (r.brandRecs || []).map((rec, i) => {
+        const nn = rec.rows.filter((x) => x.status === 'new').length, nd = rec.rows.filter((x) => x.status === 'differs').length;
+        const body = rec.rows.filter((x) => x.status !== 'same').map((x) => `<tr><td><input type="checkbox" data-br="${i}" data-k="${esc(x.k)}"${x.on ? ' checked' : ''} aria-label="Use ${esc(x.label)}"></td><td>${esc(x.label)}${x.hint ? `<div class="muted">${esc(x.hint)}</div>` : ''}</td><td class="muted">${esc(x.cur) || '—'}</td><td>${esc(x.next)}</td><td><span class="${x.status === 'new' ? 'pos' : 'neg'}">${x.status === 'new' ? 'adds' : 'replaces'}</span></td></tr>`).join('');
+        return `<div class="cl-rec"><div class="chart-head"><div><h3>${esc(rec.brand)} <span class="muted">brand facts</span></h3><div class="sub">${rec.exists ? '<span class="chip">Existing competitor</span>' : '<span class="chip">New competitor: it will be added, with news sources</span>'} ${nn} to add${nd ? `, ${nd} would replace` : ''}</div></div></div>
+          ${body ? `<div class="tbl-wrap"><table class="pm-table"><thead><tr><th></th><th>Field</th><th>Now</th><th>From import</th><th></th></tr></thead><tbody>${body}</tbody></table></div>` : '<div class="muted">Nothing new in this one.</div>'}
+          ${rec.rejected.length ? `<details class="gaps"><summary>Could not use (${rec.rejected.length})</summary><div class="sub">${rec.rejected.map((x) => `${esc(BLABEL[x.key] || x.key)}: "${esc(x.raw)}" (${esc(x.why)})`).join('<br>')}</div></details>` : ''}</div>`;
+      }).join('') + `<div class="source-actions" style="margin-top:12px"><button type="button" class="primary" id="clApply"${nChosen() ? '' : ' disabled'}>Save ${nChosen()} value${nChosen() === 1 ? '' : 's'}</button></div>`;
     }
     async function apply() {
-      const list = [];
+      const list = [], bups = {}, news = []; let nb = 0;
       ui.imp.recs.forEach((rec) => {
         if (rec.problem) return;
         const o = { brand: rec.brand, model: rec.match ? rec.match.model : rec.model }; if (rec.match) o.id = rec.match.id;
@@ -421,9 +526,40 @@
         if (na.length !== base.length || na.some((k) => !base.includes(k))) { o.na = na; n++; }
         if (n) { o.lastVerified = today(); list.push(o); }
       });
-      if (!list.length) return toast('Nothing ticked');
-      try { const r = await call('POST', '/api/products', { products: list }); S.products = r.products; toast(`${r.added} added, ${r.updated} updated`); ui.imp = null; $('#clText', root).value = ''; ui.text = ''; renderPreview(); renderList(); renderBrief(); }
-      catch (e) { toast('Import failed: ' + e.message); }
+      (ui.imp.brandRecs || []).forEach((rec) => {
+        const f = {}, on = rec.rows.filter((x) => x.on); if (!on.length && rec.exists) return;
+        if (!rec.exists) news.push(rec);
+        let regions = null;
+        on.forEach((x) => {
+          const v = rec.values[x.k];
+          if (/^region/.test(x.k)) { regions = regions || X.brandNow(rec.brand).regionsObj || {}; regions[x.k.slice(6)] = v; }
+          else if (x.k === 'sourceUrl') { const cur = (X.brandNow(rec.brand).sourcesList || []); f.sources = [...new Set([...cur, v])].join('\n'); }
+          else f[x.k] = v;
+        });
+        if (regions) f.regions = regions;
+        if (rec.note) f.dataNote = [X.brandNow(rec.brand).dataNote || '', rec.note].filter(Boolean).join(' ').slice(0, 1200);
+        if (Object.keys(f).length) { f.lastVerified = today(); bups[rec.brand] = f; nb++; }
+      });
+      if (!list.length && !nb && !news.length) return toast('Nothing ticked');
+      try {
+        for (const rec of news) { const w = (rec.rows.find((x) => x.k === 'website') || {}).on ? rec.values.website : ''; const r0 = await call('POST', '/api/brands', { addCompetitor: { name: rec.brand, category: 'Folding bike', website: w || '', createSources: true } }); X.setBrandData(r0); }
+        if (news.length) X.applyBrands();
+        let msg = [];
+        if (list.length) { const r = await call('POST', '/api/products', { products: list }); S.products = r.products; msg.push(`${r.added} model${r.added === 1 ? '' : 's'} added, ${r.updated} updated`); }
+        if (nb) { const r = await call('POST', '/api/brands', { updates: bups }); X.setBrandData(r); X.applyBrands(); msg.push(`${nb} brand${nb === 1 ? '' : 's'} updated`); }
+        if (news.length) msg.push(`${news.length} new competitor${news.length === 1 ? '' : 's'}`);
+        toast(msg.join(', ')); ui.done = { models: list.length, brands: nb, fresh: news.length };
+        ui.imp = null; $('#clText', root).value = ''; ui.text = ''; renderPreview(); renderList(); renderBrief(); showDone();
+      } catch (e) { toast('Import failed: ' + e.message); }
+    }
+    // After a save: say where the data now shows up, so the person can see the link between features
+    function showDone() {
+      const d = ui.done; if (!d) return; const box = $('#clPreview', root); if (!box) return;
+      box.innerHTML = `<div class="cl-rec" style="margin-top:12px"><div class="chart-head"><div><h3>Saved</h3><div class="sub">One import, used everywhere. Here is where it now appears:</div></div></div><div class="cl-links">
+        ${d.models ? '<button type="button" class="imagebtn" data-go="matrix">Product Comparison: specs, price and the compare cards</button><button type="button" class="imagebtn" data-go="insights" data-itab-go="chart">Insights > Charts: price, weight, rankings</button>' : ''}
+        ${d.brands ? '<button type="button" class="imagebtn" data-go="insights" data-itab-go="portfolio">Insights > Portfolio: volumes, SKUs, P&amp;A</button><button type="button" class="imagebtn" data-go="insights" data-itab-go="markets">Insights > Markets: the map</button><button type="button" class="imagebtn" data-go="competitors">Competitors: profiles</button>' : ''}
+        ${d.fresh ? '<button type="button" class="imagebtn" data-go="news">News: new sources start on the next scan (use Run scan)</button>' : ''}</div></div>`;
+      ui.done = null;
     }
 
     /* ----- checklist ----- */
@@ -463,17 +599,20 @@
     const focusFirst = (id) => { const el = root.querySelector(`details[data-id="${id}"] input.field`); if (el) el.focus(); };
 
     /* ----- AI brief ----- */
+    const brandKnown = (b) => { const n = X.brandNow(b), k = []; if (n.units) k.push(n.units.toLocaleString('en-GB') + ' bikes/yr'); if (n.skuCount) k.push(n.skuCount + ' models'); if (n.paSkus != null) k.push(n.paSkus + ' P&A products'); if (n.hq) k.push(n.hq); return k.join(', '); };
+    const brandMissing = (b) => { const n = X.brandNow(b), m = []; BKEY.forEach((k) => { const v = n[k]; if (v == null || v === '') m.push(k); }); if (!['regionUS', 'regionEMEA', 'regionAPAC', 'regionCHINA'].some((k) => (n[k] || '').length)) m.push('regionEMEA (and regionUS, regionAPAC, regionCHINA)'); return m; };
     function briefItems() {
+      if (ui.scope === 'brands') return C.brands.filter((b) => !ui.bb || b === ui.bb).slice().sort((a, b) => (b === us()) - (a === us()) || ((S.brands[b] || {}).watch ? 0 : 1) - ((S.brands[a] || {}).watch ? 0 : 1) || a.localeCompare(b)).map((b) => ({ brandFacts: true, brand: b, website: (S.brands[b] || {}).website || '', known: brandKnown(b), missing: brandMissing(b) })).filter((x) => x.missing.length);
       if (ui.scope === 'new') return C.brands.filter((b) => !S.products.some((p) => p.brand === b) && (!ui.bb || b === ui.bb)).map((b) => ({ p: null, brand: b, website: (S.brands[b] || {}).website || '' }));
       return sorted().filter((p) => (!ui.bb || p.brand === ui.bb)).map((p) => ({ p, missing: missingFor(p) })).filter((x) => x.missing.length);
     }
     function renderBrief() {
       const box = $('#clBriefBox', root); if (!box) return;
       const items = briefItems(), pages = Math.max(1, Math.ceil(items.length / ui.size)); ui.page = Math.min(ui.page, pages - 1);
-      const chunk = items.slice(ui.page * ui.size, ui.page * ui.size + ui.size), txt = chunk.length ? buildBrief(chunk) : '';
-      const bl = ui.scope === 'new' ? C.brands.filter((b) => !S.products.some((p) => p.brand === b)) : [...new Set(S.products.filter((p) => missingFor(p).length).map((p) => p.brand))];
+      const chunk = items.slice(ui.page * ui.size, ui.page * ui.size + ui.size), txt = chunk.length ? (ui.scope === 'brands' ? buildBrandBrief(chunk) : buildBrief(chunk)) : '';
+      const bl = ui.scope === 'brands' ? C.brands.filter((b) => brandMissing(b).length) : ui.scope === 'new' ? C.brands.filter((b) => !S.products.some((p) => p.brand === b)) : [...new Set(S.products.filter((p) => missingFor(p).length).map((p) => p.brand))];
       box.innerHTML = `<div class="chart-head"><div><h3>3. Give it to an AI model</h3><div class="sub">Pick what to ask for, copy the brief into an AI that can browse the web, then paste its JSON answer into the Import box at the top. Always read the preview: AI answers can be wrong, and the brief tells it to use null rather than guess.</div></div></div>
-        <div class="cl-ctx"><label>Ask for<select class="field" id="clScope"><option value="gaps"${ui.scope === 'gaps' ? ' selected' : ''}>Missing values in existing models</option><option value="new"${ui.scope === 'new' ? ' selected' : ''}>Models for brands that have none</option></select></label>
+        <div class="cl-ctx"><label>Ask for<select class="field" id="clScope"><option value="gaps"${ui.scope === 'gaps' ? ' selected' : ''}>Missing values in existing models</option><option value="new"${ui.scope === 'new' ? ' selected' : ''}>Models for brands that have none</option><option value="brands"${ui.scope === 'brands' ? ' selected' : ''}>Brand facts: volumes, SKUs, P&amp;A, markets</option></select></label>
           <label>Brand<select class="field" id="clBb"><option value="">All</option>${bl.sort((a, b) => a.localeCompare(b)).map((b) => `<option${b === ui.bb ? ' selected' : ''}>${esc(b)}</option>`).join('')}</select></label>
           <label>Per brief<select class="field" id="clSize">${[4, 8, 12, 20].map((n) => `<option${n === ui.size ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
           <label>Brief<select class="field" id="clPage">${Array.from({ length: pages }, (_, i) => `<option value="${i}"${i === ui.page ? ' selected' : ''}>${i + 1} of ${pages}</option>`).join('')}</select></label></div>
@@ -487,6 +626,8 @@
       if (t.id === 'clPick') return $('#clFile', root).click();
       if (t.id === 'clClear') { ui.text = ''; ui.imp = null; $('#clText', root).value = ''; return renderPreview(); }
       if (t.id === 'clApply') return apply();
+      if (t.id === 'clTplM') return X.exportCsv();
+      if (t.id === 'clTplB') return X.exportBrandsCsv();
       if (t.id === 'clCopy') { const v = $('#clBrief', root).value; try { await navigator.clipboard.writeText(v); toast('Brief copied'); } catch (err) { $('#clBrief', root).select(); toast('Press Ctrl+C to copy'); } return; }
       if (t.id === 'clDl') { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([$('#clBrief', root).value], { type: 'text/plain;charset=utf-8' })); a.download = `ai-brief-${ui.scope}-${ui.page + 1}.txt`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 800); return; }
       if (t.dataset.undo) return setNa(t.dataset.id, t.dataset.undo, false);
@@ -499,7 +640,8 @@
       const t = e.target;
       if (t.id === 'clFile') { if (t.files[0]) loadFile(t.files[0]); t.value = ''; return; }
       if (t.id === 'clBrand') { ui.brand = t.value; fillContext(); return; }
-      if (t.dataset.r != null && t.dataset.k) { const rec = ui.imp.recs[+t.dataset.r], row = rec.rows.find((x) => x.k === t.dataset.k); if (row) row.on = t.checked; const b = $('#clApply', root); const n = nChosen(); b.disabled = !n; b.textContent = `Add ${n} value${n === 1 ? '' : 's'} to the matrix`; return; }
+      if (t.dataset.r != null && t.dataset.k) { const rec = ui.imp.recs[+t.dataset.r], row = rec.rows.find((x) => x.k === t.dataset.k); if (row) row.on = t.checked; const b = $('#clApply', root); const n = nChosen(); b.disabled = !n; b.textContent = `Save ${n} value${n === 1 ? '' : 's'}`; return; }
+      if (t.dataset.br != null && t.dataset.k) { const rec = ui.imp.brandRecs[+t.dataset.br], row = rec.rows.find((x) => x.k === t.dataset.k); if (row) row.on = t.checked; if (row && t.checked && (row.k === 'units' || row.k === 'revenueGBPm')) { const y = rec.rows.find((x) => x.k === 'figuresYear'); if (y && y.status !== 'same') { y.on = true; const cb = root.querySelector(`input[data-br="${t.dataset.br}"][data-k="figuresYear"]`); if (cb) cb.checked = true; } } const b = $('#clApply', root), n = nChosen(); b.disabled = !n; b.textContent = `Save ${n} value${n === 1 ? '' : 's'}`; return; }
       if (t.id === 'clFb') { ui.fb = t.value; return renderList(); }
       if (t.id === 'clGaps') { ui.gapsOnly = t.checked; return renderList(); }
       if (t.id === 'clScope') { ui.scope = t.value; ui.bb = ''; ui.page = 0; return renderBrief(); }
