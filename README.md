@@ -1,4 +1,4 @@
-# Brompton Enemies v3.9.1
+# Brompton Enemies v3.10.0
 
 Next.js app for Vercel: a password-protected tracker (news scanner, social watch, insights, product matrix, competitor profiles, weekly digest) with a scanner admin at `/admin`.
 
@@ -13,6 +13,9 @@ Local development: `CI_LOCAL_STORE=./.data npm run dev` keeps data on disk inste
 ## What is in it
 - **News & updates** (opening page), **Insights** (watchlist, momentum, portfolio and volumes, price chart, regions, activity, data gaps), **Social watch**, **Product Comparison** (compare up to 6), **Competitors** (profiles, company panel, where-they-sell map, pictures), **Sources** (source manager and scanner status).
 - The scanner reads 129+ sources daily (and on **Run scan**); add a website or feed under Sources > Add source.
+
+## v3.10.0
+**Collect data is now one guided page.** Pick a brand (the page suggests where to start: our brand, then your watchlist, then the biggest gaps). Then either **A. let an AI find it** (copy one ready-made request for that brand, paste it into an AI, paste the answer back, check the preview, save) or **B. type what you know** (only the missing brand facts and model specs are shown; tick *Not published* when a company does not say, so it stops nagging). Brand facts and models are handled together, models can be added on the spot, and **Next brand with gaps** keeps you moving. Spreadsheets and bulk AI requests for many brands at once are under "Many brands at once".
 
 ## v3.9.1
 - **Product Comparison accepts any model in any column**, so all Brompton models (C Line, P Line, T Line and so on) can be added and two or more Bromptons compared. Before, the picker only listed competitor brands. The first column is the baseline: the "vs us" differences are measured against it. "null" is no longer accepted as a model name on import or save.

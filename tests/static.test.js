@@ -81,3 +81,9 @@ test('any model can be compared with any other, including two Brompton models',(
   assert.ok(!/isUs\(p\.brand\)\s*:\s*!isUs/.test(pick),'the picker must list every brand');
   assert.ok(!/if \(isUs\(p\.brand\)\) S\.cmp\.us = id/.test(p),'addCmp must not force our models into the first column');
 });
+
+test('Collect data is one guided workspace: pick a brand, ask an AI or type it in, save',()=>{
+  const c=fs.readFileSync('public/collect.js','utf8');
+  for(const k of ['renderOverview','renderWork','buildWorkBrief','factsForm','saveFacts','addModel','clWbCopy','clNext','Where to start','Not published','Many brands at once'])assert.ok(c.includes(k),k);
+  assert.ok(!c.includes('<h3>1. Import</h3>'),'the old import-first layout is gone');
+});

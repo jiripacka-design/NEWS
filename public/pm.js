@@ -919,7 +919,7 @@
   // What the tracker holds today for a brand, by the field names the Collect page uses.
   function brandNow(n) {
     const b = bm(n), r = regionsOf(n) || {};
-    return { units: unitsOf(n), revenueGBPm: revenueOf(n), skuCount: skuOf(n), paSkus: b.paSkus, paCategories: b.paCategories, offers: b.offers, figuresYear: b.figuresYear, hq: b.hq, founded: b.founded, employees: b.employees, ownership: b.ownership, website: b.website, positioning: b.positioning, dataNote: b.dataNote, sourcesList: b.sources || [], regionUS: (r.US || []).join(', '), regionEMEA: (r.EMEA || []).join(', '), regionAPAC: (r.APAC || []).join(', '), regionCHINA: (r.CHINA || []).join(', '), regionsObj: { US: (r.US || []).join(', '), EMEA: (r.EMEA || []).join(', '), APAC: (r.APAC || []).join(', '), CHINA: (r.CHINA || []).join(', ') } };
+    return { units: unitsOf(n), revenueGBPm: revenueOf(n), skuCount: skuOf(n), paSkus: b.paSkus, paCategories: b.paCategories, offers: b.offers, figuresYear: b.figuresYear, hq: b.hq, founded: b.founded, employees: b.employees, ownership: b.ownership, website: b.website, positioning: b.positioning, dataNote: b.dataNote, na: b.na || [], sourcesList: b.sources || [], regionUS: (r.US || []).join(', '), regionEMEA: (r.EMEA || []).join(', '), regionAPAC: (r.APAC || []).join(', '), regionCHINA: (r.CHINA || []).join(', '), regionsObj: { US: (r.US || []).join(', '), EMEA: (r.EMEA || []).join(', '), APAC: (r.APAC || []).join(', '), CHINA: (r.CHINA || []).join(', ') } };
   }
   /* ---------- the list of competitors: built-in ones can be hidden, you can add your own ---------- */
   const BASE_BRANDS = C.brands.slice(), BASE_MODELS = Object.fromEntries(C.models.map((m) => [m.name, Object.assign({}, m)]));

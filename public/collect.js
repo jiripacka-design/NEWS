@@ -442,7 +442,7 @@
   api.mount = function (X) {
     const { S, api: call, RENDER, mkView, mkNav, go, C } = X, { $, esc, toast } = C;
     const today = () => new Date().toISOString().slice(0, 10);
-    const ui = { text: '', brand: '', model: '', imp: null, fb: '', gapsOnly: true, q: '', open: new Set(), scope: 'gaps', bb: '', size: 8, page: 0 };
+    const ui = { text: '', brand: '', model: '', imp: null, fb: '', gapsOnly: true, q: '', open: new Set(), scope: 'gaps', bb: '', size: 8, page: 0, wb: '', allFacts: false };
     const root = mkView('collect', ''); mkNav('collect', 'Collect data', 'competitors');
     const brands = () => C.brands.slice().sort((a, b) => a.localeCompare(b));
     const us = () => X.usName();
@@ -451,37 +451,30 @@
     const bar = (pct) => `<div class="cl-bar" role="img" aria-label="${pct}% complete"><i style="width:${pct}%"></i></div>`;
 
     function skeleton() {
-      root.innerHTML = `<div class="head"><div><h2>Collect data</h2><div class="sub">Three ways to fill the gaps: import what you have, work down the checklist, or hand the list to an AI model and paste its answer back. Nothing is overwritten unless you tick it.</div></div></div>
-        <div class="panel" id="clImportBox"><h3>1. Import</h3>
-          <div class="sub">Paste a spec table copied from a product page, an AI answer (JSON) or a spreadsheet (CSV), or drop a file on the box. For a pasted spec table, say which model it is for.</div>
-          <div class="cl-ctx"><label>Brand<select class="field" id="clBrand"></select></label><label>Model<input class="field" id="clModel" list="clModels" placeholder="needed for pasted spec text" autocomplete="off"></label><datalist id="clModels"></datalist></div>
-          <textarea class="field cl-text" id="clText" spellcheck="false" placeholder="Weight: 12.5 kg&#10;Folded size: 25.3&quot; H x 23&quot; W x 10.6&quot; D&#10;Brakes: Brompton Dual Pivot Calipers&#10;&#10;or paste JSON from an AI model, or a CSV with brand and model columns"></textarea>
-          <div class="source-actions"><button type="button" class="primary" id="clRead">Read it</button><button type="button" class="imagebtn" id="clTplM" title="Every model and every spec as a spreadsheet, blanks included">Download models to fill in</button><button type="button" class="imagebtn" id="clTplB" title="Every brand with volumes, SKUs, P&A and markets, blanks included">Download brands to fill in</button><button type="button" class="imagebtn" id="clPick">Choose a file</button><button type="button" class="imagebtn" id="clClear">Clear</button><input type="file" id="clFile" accept=".csv,.json,.txt,.md,text/*" hidden></div>
-          <div id="clPreview"></div></div>
-        <div class="panel" id="clListBox"></div>
-        <div class="panel" id="clBriefBox"></div>`;
+      root.innerHTML = `<div class="head"><div><h2>Collect data</h2><div class="sub">Pick a brand, then let an AI find its facts or type what you know. Everything is checked before it is saved, and nothing you already have is replaced unless you tick it.</div></div></div>
+        <div id="clOverview"></div><div id="clWork"></div>
+        <details class="panel cl-bulk" id="clBulk"><summary><strong>Many brands at once</strong> <span class="muted">spreadsheets and bulk AI requests</span></summary>
+          <div class="sub">For when you want to fill in lots of brands in one go. Download a spreadsheet with every brand or model, fill in what you know, then choose it again here. The preview appears in the brand box above, so nothing is saved until you check it.</div>
+          <div class="source-actions"><button type="button" class="imagebtn" id="clTplM">Download models to fill in</button><button type="button" class="imagebtn" id="clTplB">Download brands to fill in</button><button type="button" class="imagebtn" id="clPick">Choose a filled-in file</button><input type="file" id="clFile" accept=".csv,.json,.txt,.tsv,text/*,application/json" hidden></div>
+          <div id="clBriefBox"></div></details>`;
       root.dataset.ready = '1';
-      const t = $('#clText', root); t.value = ui.text;
-      t.addEventListener('dragover', (e) => e.preventDefault());
-      t.addEventListener('drop', async (e) => { e.preventDefault(); if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]); });
     }
-    async function loadFile(f) { ui.text = await f.text(); $('#clText', root).value = ui.text; readNow(); }
+    async function loadFile(f) { ui.text = await f.text(); $('#clText', root).value = ui.text; readNow(); const pv = $('#clPreview', root); if (pv) pv.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
 
     function fillContext() {
-      const b = $('#clBrand', root); if (!b) return;
-      b.innerHTML = `<option value="">Choose brand</option>` + brands().map((n) => `<option${n === ui.brand ? ' selected' : ''}>${esc(n)}</option>`).join('');
-      $('#clModels', root).innerHTML = S.products.filter((p) => p.brand === ui.brand).map((p) => `<option value="${esc(p.model)}">`).join('');
+      const d = $('#clModels', root); if (!d) return;
+      d.innerHTML = S.products.filter((p) => p.brand === ui.wb).map((p) => `<option value="${esc(p.model)}">`).join('');
     }
 
     /* ----- import preview ----- */
     function readNow() {
-      ui.text = $('#clText', root).value; ui.brand = $('#clBrand', root).value; ui.model = $('#clModel', root).value.trim();
+      ui.text = $('#clText', root).value; ui.brand = ui.wb || ''; ui.model = (($('#clModel', root) || {}).value || '').trim();
       if (!ui.text.trim()) { ui.imp = null; return renderPreview(); }
       const r = readInput(ui.text, { brand: ui.brand, model: ui.model });
       r.recs.forEach((rec) => {
         const m = findExisting(rec, S.products, C.brands); rec.brand = m.brand || rec.brand; rec.match = m.p; rec.how = m.how;
         rec.rows = diffRecord(rec, m.p); rec.rows.forEach((x) => { x.on = x.status === 'new'; });
-        rec.problem = !rec.brand ? 'Choose a brand above.' : !rec.model && !m.p ? 'Type the model name above.' : '';
+        rec.problem = !rec.brand ? 'No brand found: the answer needs a brand on every model.' : !rec.model && !m.p ? 'Say which model this is (open “Pasting a spec table for one model?” above).' : '';
       });
       (r.brandRecs || []).forEach((rec) => {
         const nm = C.brands.find((b) => norm(b) === norm(rec.brand)); rec.exists = !!nm; rec.brand = nm || rec.brand;
@@ -563,18 +556,7 @@
     }
 
     /* ----- checklist ----- */
-    function renderList() {
-      const box = $('#clListBox', root); if (!box) return;
-      const all = sorted(), tot = all.reduce((a, p) => { const g = progress(p); return [a[0] + g.done, a[1] + g.total]; }, [0, 0]), pct = tot[1] ? Math.round((tot[0] / tot[1]) * 100) : 0;
-      const bl = [...new Set(all.map((p) => p.brand))].sort((a, b) => a.localeCompare(b)), q = ui.q.toLowerCase();
-      let shown = all.filter((p) => (!ui.fb || p.brand === ui.fb) && (!q || `${p.brand} ${p.model}`.toLowerCase().includes(q)) && (!ui.gapsOnly || missingFor(p).length));
-      const none = C.brands.filter((b) => !S.products.some((p) => p.brand === b));
-      box.innerHTML = `<div class="chart-head"><div><h3>2. Checklist</h3><div class="sub">${tot[0]} of ${tot[1]} values filled across ${all.length} model${all.length === 1 ? '' : 's'} (${pct}%). Type a value and press Enter, or tick <em>Not published</em> when the maker does not say. Either way the row is done.</div></div>
-        <div class="source-actions"><select class="field" id="clFb" aria-label="Brand"><option value="">All brands</option>${bl.map((b) => `<option${b === ui.fb ? ' selected' : ''}>${esc(b)}</option>`).join('')}</select><input class="field" id="clQ" placeholder="Filter models" value="${esc(ui.q)}"><label class="cl-chk"><input type="checkbox" id="clGaps"${ui.gapsOnly ? ' checked' : ''}> Only models with gaps</label></div></div>
-        ${bar(pct)}
-        <div id="clModelsList">${shown.length ? shown.map(modelCard).join('') : `<div class="pm-empty"><strong>${all.length ? 'No gaps in this view' : 'No models yet'}</strong><span>${all.length ? 'Everything shown is complete. Untick "Only models with gaps" to see them anyway.' : 'Use Add model on the Product matrix, or import a CSV or an AI answer above.'}</span></div>`}</div>
-        <details class="gaps"><summary>Brands with no models yet (${none.length})</summary><div class="chips">${none.length ? none.map((b) => `<button type="button" class="chip gap-chip" data-newmodel="${esc(b)}">${esc(b)}</button>`).join('') : '<em class="muted">None.</em>'}</div><div class="sub">Select a brand to add its first model by name. The AI brief below can also look up their main models for you.</div></details>`;
-    }
+    function renderList() { renderOverview(); renderWork(); }
     function modelCard(p) {
       const g = progress(p), miss = missingFor(p), na = (p.na || []).filter((k) => FIELDS.some((f) => f.k === k)), open = ui.open.has(p.id);
       const groups = []; miss.forEach((f) => { let gr = groups.find((x) => x[0] === f.g); if (!gr) groups.push(gr = [f.g, []]); gr[1].push(f); });
@@ -598,9 +580,128 @@
     }
     const focusFirst = (id) => { const el = root.querySelector(`details[data-id="${id}"] input.field`); if (el) el.focus(); };
 
+    /* ===== guided workspace: pick a brand, then either ask an AI or type what you know ===== */
+    const FACT_KEYS = ['units', 'figuresYear', 'revenueGBPm', 'skuCount', 'paSkus', 'paCategories', 'offers', 'hq', 'founded', 'employees', 'ownership', 'website', 'regions'];
+    const REGION_KEYS = ['regionUS', 'regionEMEA', 'regionAPAC', 'regionCHINA'];
+    const FACT_GROUPS = [['Size and volume', ['units', 'figuresYear', 'revenueGBPm', 'skuCount']], ['Accessories (P&A)', ['paSkus', 'paCategories']], ['What it sells', ['offers']], ['Where it sells', ['regions']], ['Company', ['hq', 'founded', 'employees', 'ownership', 'website']]];
+    const OFFER_LIST = ['Folding bike', 'Folding e-bike', 'E-bike', 'Cargo e-bike', 'Accessories', 'Spare parts'];
+    function factState(b) {
+      const n = X.brandNow(b), na = n.na || [];
+      const val = (k) => (k === 'regions' ? REGION_KEYS.some((r) => (n[r] || '') !== '') : n[k] != null && n[k] !== '');
+      const missing = FACT_KEYS.filter((k) => !val(k) && !na.includes(k));
+      return { n, na, val, missing, pct: Math.round(((FACT_KEYS.length - missing.length) / FACT_KEYS.length) * 100) };
+    }
+    function brandProgress(b) {
+      const f = factState(b), ms = S.products.filter((p) => p.brand === b); let d = 0, t = 0;
+      ms.forEach((p) => { const g = progress(p); d += g.done; t += g.total; });
+      return { facts: f, models: ms.length, specs: t ? Math.round((d / t) * 100) : null, gaps: f.missing.length + ms.reduce((a, p) => a + missingFor(p).length, 0) };
+    }
+    const tier = (b) => (b === us() ? 0 : (S.brands[b] || {}).watch ? 1 : 2);
+    const rankBrands = () => C.brands.slice().sort((a, b) => tier(a) - tier(b) || brandProgress(b).gaps - brandProgress(a).gaps || a.localeCompare(b));
+    const miniBar = (label, pct) => `<div class="cl-mini"><span>${label}</span>${pct == null ? '<em class="muted">no models yet</em>' : `${bar(pct)}<b>${pct}%</b>`}</div>`;
+
+    function renderOverview() {
+      const box = $('#clOverview', root); if (!box) return;
+      const all = C.brands.map((b) => ({ b, p: brandProgress(b) })), avgFacts = all.length ? Math.round(all.reduce((a, x) => a + x.p.facts.pct, 0) / all.length) : 0;
+      const tot = S.products.reduce((a, p) => { const g = progress(p); return [a[0] + g.done, a[1] + g.total]; }, [0, 0]), specs = tot[1] ? Math.round((tot[0] / tot[1]) * 100) : 0;
+      const noModels = all.filter((x) => !x.p.models).length, start = rankBrands().filter((b) => brandProgress(b).gaps).slice(0, 6);
+      box.innerHTML = `<div class="metrics"><div class="metric">Brand facts filled<strong>${avgFacts}<small>%</small></strong></div><div class="metric">Model specs filled<strong>${specs}<small>%</small></strong></div><div class="metric">Brands with no models<strong>${noModels}<small> of ${all.length}</small></strong></div><div class="metric">Models tracked<strong>${S.products.length}</strong></div></div>
+        <div class="panel"><div class="chart-head"><div><h3>Where to start</h3><div class="sub">Our brand first, then the competitors you watch, then whichever has the most gaps. Select one to open it below.</div></div><label class="cmp-bar">Or pick any brand<select class="field" id="clWb">${rankBrands().map((b) => `<option${b === ui.wb ? ' selected' : ''}>${esc(b)}</option>`).join('')}</select></label></div>
+        <div class="cl-start">${start.length ? start.map((b) => { const p = brandProgress(b); return `<button type="button" class="cl-st${b === ui.wb ? ' on' : ''}" data-wb="${esc(b)}"><span class="cl-st-h"><strong>${esc(b)}</strong>${b === us() ? '<span class="pm-us">US</span>' : (S.brands[b] || {}).watch ? '<span class="chip">watching</span>' : ''}</span>${miniBar('Facts', p.facts.pct)}${miniBar('Models', p.specs)}<span class="muted">${p.gaps} gap${p.gaps === 1 ? '' : 's'}</span></button>`; }).join('') : '<div class="source-empty">Every brand is complete. Nice.</div>'}</div></div>`;
+    }
+
+    function buildWorkBrief(b) {
+      const f = factState(b), keys = f.missing.flatMap((k) => (k === 'regions' ? REGION_KEYS : [k])), ms = S.products.filter((p) => p.brand === b), items = ms.map((p) => ({ p, missing: missingFor(p) })).filter((x) => x.missing.length).slice(0, 12);
+      const site = (S.brands[b] || {}).website, L = [];
+      L.push(`You are helping a UK bicycle retailer complete a competitor profile for the folding-bike / e-bike brand "${b}"${site ? ' (' + site + ')' : ''}. Use a web search / browsing tool.`, '',
+        'RULES', '- Use the brand\'s own site, annual reports or filings, or reputable trade press (BikeBiz, Cycling Industry News, Bike Europe). Prefer the most recent full year.',
+        '- Never guess or fill from memory. If you cannot find a value, use null. Volumes and revenue are often unpublished: null is then the right answer.',
+        '- If a figure is the company\'s own claim rather than audited, say so in notes and still give it.',
+        '- Numbers are plain numbers with no units, symbols or commas. Money is GBP for models (if only EUR or USD is published use priceEUR / priceUSD instead). Revenue is in £ millions. Dimensions: foldH, foldW, foldL in cm.',
+        '- sourceUrl is the exact page you used (starting https://). Keep each model\'s exact name.',
+        '- Return ONLY valid JSON, nothing before or after, in exactly this shape:', '',
+        `{"brands":[{"brand":"${b}","<field>":<value>,"sourceUrl":"https://...","notes":""}],"products":[{"brand":"${b}","model":"<exact model name>","<field>":<value>,"sourceUrl":"https://...","notes":""}]}`, '');
+      L.push('1. BRAND FACTS (only the missing ones)');
+      if (keys.length) { L.push(...BFIELDS.filter((x) => keys.includes(x.k)).map((x) => `- ${x.k}: ${x.l}. ${x.h}`)); } else L.push('Nothing is missing: return "brands": [] .');
+      L.push('', '2. MODELS WE ALREADY TRACK (fill only the missing fields)');
+      if (items.length) {
+        const used = new Set(); items.forEach((x) => x.missing.forEach((m) => used.add(m.k)));
+        items.forEach((x, i) => L.push(`${i + 1}. ${x.p.model} | known: ${knownFacts(x.p) || 'nothing yet'} | missing: ${x.missing.map((m) => m.k).join(', ')}`));
+        L.push('', 'MODEL FIELD GUIDE (key: label. format)', ...FIELDS.filter((x) => used.has(x.k)).map((x) => `- ${x.k}: ${x.l}. ${x.h}`));
+      } else L.push(ms.length ? 'No gaps in the models we track.' : 'We track no models for this brand yet.');
+      L.push('', '3. OTHER MODELS', `If ${b} currently sells bike models that are not listed above, add each as a new object in "products": its model name, line (the family, e.g. "C Line"), priceGBP, weightKg and any other specs you can verify. Only models on sale now.`);
+      return L.join('\n');
+    }
+
+    function factsForm(b) {
+      const st = factState(b), n = st.n, all = ui.allFacts, one = (k) => {
+        const f = BFIELDS.find((x) => x.k === k), miss = st.missing.includes(k), na = st.na.includes(k);
+        if (!all && !miss && !na) return '';
+        const v = n[k] == null ? '' : n[k];
+        return `<div class="bf${miss ? ' miss' : ''}"><label><span class="bf-l">${esc(f.l)}</span><input class="field" data-bf="${k}" value="${esc(v)}" placeholder="${esc(f.h)}"${na ? ' disabled' : ''}></label><label class="cl-chk"><input type="checkbox" data-bna="${k}"${na ? ' checked' : ''}> Not published</label></div>`;
+      };
+      const offers = () => { if (!all && !st.missing.includes('offers') && !st.na.includes('offers')) return ''; const have = String(n.offers || '').split(',').map((x) => x.trim()), na = st.na.includes('offers'); return `<div class="bf${st.missing.includes('offers') ? ' miss' : ''}"><span class="bf-l">What ${esc(b)} sells</span><div class="offers">${OFFER_LIST.map((o) => `<label class="chk"><input type="checkbox" data-boffer="${o}"${have.includes(o) ? ' checked' : ''}${na ? ' disabled' : ''}> ${o}</label>`).join('')}</div><label class="cl-chk"><input type="checkbox" data-bna="offers"${na ? ' checked' : ''}> Not published</label></div>`; };
+      const regions = () => { if (!all && !st.missing.includes('regions') && !st.na.includes('regions')) return ''; const na = st.na.includes('regions'); return `<div class="bf${st.missing.includes('regions') ? ' miss' : ''}"><span class="bf-l">Countries it sells in (comma separated)</span><div class="bf-reg">${[['regionUS', 'Americas'], ['regionEMEA', 'Europe, Middle East, Africa'], ['regionAPAC', 'Asia Pacific'], ['regionCHINA', 'Greater China']].map(([k, l]) => `<label><span class="muted">${l}</span><input class="field" data-bf="${k}" value="${esc(n[k] || '')}" placeholder="e.g. UK, Germany"${na ? ' disabled' : ''}></label>`).join('')}</div><label class="cl-chk"><input type="checkbox" data-bna="regions"${na ? ' checked' : ''}> Not published</label></div>`; };
+      const groups = FACT_GROUPS.map(([t, ks]) => { const body = ks.map((k) => (k === 'offers' ? offers() : k === 'regions' ? regions() : one(k))).join(''); return body ? `<fieldset class="pm-sec"><legend>${esc(t)}</legend>${body}</fieldset>` : ''; }).join('');
+      return `<div class="chart-head"><div><h3>About ${esc(b)}</h3><div class="sub">${st.missing.length ? `${st.missing.length} fact${st.missing.length === 1 ? '' : 's'} missing, shown below. Tick <em>Not published</em> when the company does not say, so it stops showing up.` : 'Every fact is filled in or marked not published.'}</div></div><label class="cl-chk"><input type="checkbox" id="clAllFacts"${all ? ' checked' : ''}> Show every fact</label></div>
+        ${groups || '<div class="source-empty">Nothing missing here. Tick “Show every fact” to edit what is already filled in.</div>'}
+        <div class="bf"><label><span class="bf-l">Where did these figures come from? (link, optional)</span><input class="field" data-bf="sourceUrl" placeholder="https://"></label></div>
+        <div class="source-actions"><button type="button" class="primary" id="clSaveFacts">Save facts</button><span class="sub">Only the boxes you filled in are saved. Nothing else changes.</span></div>`;
+    }
+    async function saveFacts() {
+      const b = ui.wb, st = factState(b), f = {}, na = new Set(st.na); let bad = false;
+      root.querySelectorAll('#clFacts [data-bf]').forEach((inp) => {
+        inp.classList.remove('cl-bad'); const k = inp.dataset.bf; if (inp.disabled || /^region/.test(k)) return; const v = inp.value.trim(); if (!v) return;
+        if (k === 'sourceUrl') { if (!/^https:\/\//i.test(v)) { inp.classList.add('cl-bad'); bad = true; toast('The source link must start with https://'); } return; }
+        const r = bcoerce(k, v); if (r.why) { inp.classList.add('cl-bad'); bad = true; toast(`${BLABEL[k] || k}: ${r.why}`); return; } Object.assign(f, r.set);
+      });
+      if (bad) return;
+      const typed = {}; REGION_KEYS.forEach((k) => { const el = root.querySelector(`#clFacts [data-bf="${k}"]`); if (el && !el.disabled && el.value.trim() !== (st.n[k] || '')) typed[k.slice(6)] = el.value.trim(); });
+      if (Object.keys(typed).length) f.regions = Object.assign({}, st.n.regionsObj || {}, typed);
+      const offs = [...root.querySelectorAll('#clFacts [data-boffer]:checked')].map((x) => x.dataset.boffer); const hadOffers = root.querySelector('#clFacts [data-boffer]'); if (hadOffers && offs.length && offs.join(', ') !== (st.n.offers || '')) f.offers = offs.join(', ');
+      root.querySelectorAll('#clFacts [data-bna]').forEach((x) => { if (x.checked) na.add(x.dataset.bna); else na.delete(x.dataset.bna); });
+      Object.keys(f).forEach((k) => { if (k === 'regions') na.delete('regions'); else if (na.has(k)) na.delete(k); });
+      f.na = [...na];
+      const src = (root.querySelector('#clFacts [data-bf="sourceUrl"]') || {}).value; if (src && /^https:\/\//i.test(src.trim())) f.sources = [...new Set([...(st.n.sourcesList || []), src.trim()])].join('\n');
+      const changed = Object.keys(f).filter((k) => k !== 'na' && k !== 'sources').length || JSON.stringify([...na].sort()) !== JSON.stringify(st.na.slice().sort()) || f.sources;
+      if (!changed) return toast('Nothing to save yet');
+      f.lastVerified = today();
+      try { const r = await call('POST', '/api/brands', { updates: { [b]: f } }); X.setBrandData(r); X.applyBrands(); toast(`${b} saved`); renderList(); renderBrief(); }
+      catch (e) { toast('Not saved: ' + e.message); }
+    }
+    function renderModelsBox() {
+      const b = ui.wb, ms = S.products.filter((p) => p.brand === b).sort((x, y) => missingFor(y).length - missingFor(x).length || x.model.localeCompare(y.model));
+      return `<div class="chart-head"><div><h3>${esc(b)} models (${ms.length})</h3><div class="sub">${ms.length ? 'Open a model to type its missing specs: type a value and press Enter, or tick <em>Not published</em>.' : 'No models yet. Add the first one below, or let an AI find them (section above).'}</div></div></div>
+        <div id="clModelsList">${ms.map(modelCard).join('')}</div>
+        <div class="cl-add"><strong>Add a model</strong><div class="cl-add-row"><input class="field" id="nmName" placeholder="Model name, e.g. C Line 4-speed"><input class="field" id="nmLine" placeholder="Line, e.g. C Line"><input class="field" id="nmPrice" placeholder="Price £ (optional)" inputmode="decimal"><button type="button" class="imagebtn" id="clAddModel">Add model</button></div></div>`;
+    }
+    function renderWork() {
+      const box = $('#clWork', root); if (!box) return; const b = ui.wb; if (!b) { box.innerHTML = ''; return; }
+      const p = brandProgress(b), ctx = box.querySelector('#clText'), keep = ctx ? ctx.value : ui.text, hadFocus = document.activeElement && document.activeElement.id;
+      box.innerHTML = `<div class="panel cl-work"><div class="cl-wh"><div><h2>${esc(b)}</h2><div class="sub">${p.gaps ? `${p.facts.missing.length} brand fact${p.facts.missing.length === 1 ? '' : 's'} and ${p.gaps - p.facts.missing.length} model value${p.gaps - p.facts.missing.length === 1 ? '' : 's'} still missing.` : 'Complete.'}</div></div><div class="cl-wbars">${miniBar('Facts', p.facts.pct)}${miniBar('Models', p.specs)}<button type="button" class="imagebtn" id="clNext" title="Go to the next brand that still has gaps">Next brand with gaps →</button></div></div>
+        <div class="cl-card"><div class="cl-step"><span>A</span><div><h3>Let an AI find it</h3><div class="sub">Fastest for a whole brand. Three steps, all on this page.</div></div></div>
+          <ol class="cl-how"><li><button type="button" class="primary" id="clWbCopy">Copy the request for ${esc(b)}</button> <span class="muted">It lists exactly what is missing and asks for answers in a format this page understands.</span></li><li>Paste it into an AI that can browse the web (ChatGPT, Claude, Gemini or Perplexity with search on).</li><li>Paste its answer here, then check the preview before saving:</li></ol>
+          <textarea class="field cl-text" id="clText" spellcheck="false" placeholder="Paste the AI's answer here (JSON), or a spec table copied from a product page, or CSV rows"></textarea>
+          <details class="gaps"><summary>Pasting a spec table for one model?</summary><div class="cl-ctx"><label>Which model is it?<input class="field" id="clModel" list="clModels" placeholder="model name" autocomplete="off"></label><datalist id="clModels"></datalist></div></details>
+          <div class="source-actions"><button type="button" class="primary" id="clRead">Check it</button><button type="button" class="imagebtn" id="clPick">Use a file instead</button><button type="button" class="imagebtn" id="clClear">Clear</button><button type="button" class="linkbtn" id="clShowReq">Show the request</button></div>
+          <textarea class="field cl-text" id="clWbBrief" readonly hidden>${esc(buildWorkBrief(b))}</textarea>
+          <div id="clPreview"></div></div>
+        <div class="cl-card"><div class="cl-step"><span>B</span><div><h3>Or type what you know</h3><div class="sub">Only the missing items are shown.</div></div></div><div id="clFacts">${factsForm(b)}</div><div id="clModelsBox">${renderModelsBox()}</div></div></div>`;
+      const t = $('#clText', box); t.value = keep || ''; t.addEventListener('dragover', (e) => e.preventDefault()); t.addEventListener('drop', async (e) => { e.preventDefault(); if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]); });
+      fillContext(); renderPreview();
+      if (hadFocus && hadFocus !== 'clText') { const el = document.getElementById(hadFocus); if (el && root.contains(el)) el.focus(); }
+    }
+    function selectBrand(b, scroll) { if (!C.brands.includes(b)) return; ui.wb = b; ui.imp = null; ui.text = ''; ui.allFacts = false; renderList(); if (scroll) { const w = $('#clWork', root); if (w) w.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }
+    async function addModel() {
+      const name = ($('#nmName', root).value || '').trim(), line = ($('#nmLine', root).value || '').trim(), price = ($('#nmPrice', root).value || '').trim();
+      if (!name) return toast('Give the model a name');
+      const o = { brand: ui.wb, model: name }; if (line) o.line = line; if (price) { const r = coerce('priceGBP', price); if (r.why) return toast('Price: ' + r.why); Object.assign(o, r.set); }
+      try { const r = await call('POST', '/api/products', { product: o }); S.products = r.products; const m = S.products.find((p) => p.brand === ui.wb && p.model.toLowerCase() === name.toLowerCase()); if (m) ui.open.add(m.id); toast(`${name} added`); renderList(); renderBrief(); } catch (e) { toast(e.message); }
+    }
+
     /* ----- AI brief ----- */
     const brandKnown = (b) => { const n = X.brandNow(b), k = []; if (n.units) k.push(n.units.toLocaleString('en-GB') + ' bikes/yr'); if (n.skuCount) k.push(n.skuCount + ' models'); if (n.paSkus != null) k.push(n.paSkus + ' P&A products'); if (n.hq) k.push(n.hq); return k.join(', '); };
-    const brandMissing = (b) => { const n = X.brandNow(b), m = []; BKEY.forEach((k) => { const v = n[k]; if (v == null || v === '') m.push(k); }); if (!['regionUS', 'regionEMEA', 'regionAPAC', 'regionCHINA'].some((k) => (n[k] || '').length)) m.push('regionEMEA (and regionUS, regionAPAC, regionCHINA)'); return m; };
+    const brandMissing = (b) => factState(b).missing.map((k) => (k === 'regions' ? 'regionEMEA (and regionUS, regionAPAC, regionCHINA)' : k));
     function briefItems() {
       if (ui.scope === 'brands') return C.brands.filter((b) => !ui.bb || b === ui.bb).slice().sort((a, b) => (b === us()) - (a === us()) || ((S.brands[b] || {}).watch ? 0 : 1) - ((S.brands[a] || {}).watch ? 0 : 1) || a.localeCompare(b)).map((b) => ({ brandFacts: true, brand: b, website: (S.brands[b] || {}).website || '', known: brandKnown(b), missing: brandMissing(b) })).filter((x) => x.missing.length);
       if (ui.scope === 'new') return C.brands.filter((b) => !S.products.some((p) => p.brand === b) && (!ui.bb || b === ui.bb)).map((b) => ({ p: null, brand: b, website: (S.brands[b] || {}).website || '' }));
@@ -611,7 +712,7 @@
       const items = briefItems(), pages = Math.max(1, Math.ceil(items.length / ui.size)); ui.page = Math.min(ui.page, pages - 1);
       const chunk = items.slice(ui.page * ui.size, ui.page * ui.size + ui.size), txt = chunk.length ? (ui.scope === 'brands' ? buildBrandBrief(chunk) : buildBrief(chunk)) : '';
       const bl = ui.scope === 'brands' ? C.brands.filter((b) => brandMissing(b).length) : ui.scope === 'new' ? C.brands.filter((b) => !S.products.some((p) => p.brand === b)) : [...new Set(S.products.filter((p) => missingFor(p).length).map((p) => p.brand))];
-      box.innerHTML = `<div class="chart-head"><div><h3>3. Give it to an AI model</h3><div class="sub">Pick what to ask for, copy the brief into an AI that can browse the web, then paste its JSON answer into the Import box at the top. Always read the preview: AI answers can be wrong, and the brief tells it to use null rather than guess.</div></div></div>
+      box.innerHTML = `<div class="chart-head"><div><h3>Bulk AI requests</h3><div class="sub">Pick what to ask for, copy the brief into an AI that can browse the web, then paste its JSON answer into the box in the brand section above. Always read the preview: AI answers can be wrong, and the brief tells it to use null rather than guess.</div></div></div>
         <div class="cl-ctx"><label>Ask for<select class="field" id="clScope"><option value="gaps"${ui.scope === 'gaps' ? ' selected' : ''}>Missing values in existing models</option><option value="new"${ui.scope === 'new' ? ' selected' : ''}>Models for brands that have none</option><option value="brands"${ui.scope === 'brands' ? ' selected' : ''}>Brand facts: volumes, SKUs, P&amp;A, markets</option></select></label>
           <label>Brand<select class="field" id="clBb"><option value="">All</option>${bl.sort((a, b) => a.localeCompare(b)).map((b) => `<option${b === ui.bb ? ' selected' : ''}>${esc(b)}</option>`).join('')}</select></label>
           <label>Per brief<select class="field" id="clSize">${[4, 8, 12, 20].map((n) => `<option${n === ui.size ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
@@ -626,6 +727,12 @@
       if (t.id === 'clPick') return $('#clFile', root).click();
       if (t.id === 'clClear') { ui.text = ''; ui.imp = null; $('#clText', root).value = ''; return renderPreview(); }
       if (t.id === 'clApply') return apply();
+      if (t.dataset.wb) return selectBrand(t.dataset.wb, true);
+      if (t.id === 'clSaveFacts') return saveFacts();
+      if (t.id === 'clNext') { const order = rankBrands().filter((b) => brandProgress(b).gaps && b !== ui.wb), i = order.findIndex((b) => tier(b) > tier(ui.wb) || (tier(b) === tier(ui.wb) && brandProgress(b).gaps <= brandProgress(ui.wb).gaps)); const n = order[i >= 0 ? i : 0]; return n ? selectBrand(n, true) : toast('Every other brand is complete'); }
+      if (t.id === 'clAddModel') return addModel();
+      if (t.id === 'clShowReq') { const r = $('#clWbBrief', root); r.hidden = !r.hidden; t.textContent = r.hidden ? 'Show the request' : 'Hide the request'; return; }
+      if (t.id === 'clWbCopy') { const v = buildWorkBrief(ui.wb); try { await navigator.clipboard.writeText(v); toast(`Request for ${ui.wb} copied. Paste it into your AI, then paste its answer below.`); } catch (err) { const r = $('#clWbBrief', root); r.hidden = false; r.select(); toast('Press Ctrl+C to copy the request'); } const ta = $('#clText', root); if (ta) ta.focus({ preventScroll: true }); return; }
       if (t.id === 'clTplM') return X.exportCsv();
       if (t.id === 'clTplB') return X.exportBrandsCsv();
       if (t.id === 'clCopy') { const v = $('#clBrief', root).value; try { await navigator.clipboard.writeText(v); toast('Brief copied'); } catch (err) { $('#clBrief', root).select(); toast('Press Ctrl+C to copy'); } return; }
@@ -639,7 +746,9 @@
     root.addEventListener('change', (e) => {
       const t = e.target;
       if (t.id === 'clFile') { if (t.files[0]) loadFile(t.files[0]); t.value = ''; return; }
-      if (t.id === 'clBrand') { ui.brand = t.value; fillContext(); return; }
+      if (t.id === 'clWb') return selectBrand(t.value, true);
+      if (t.id === 'clAllFacts') { ui.allFacts = t.checked; const f = $('#clFacts', root); f.innerHTML = factsForm(ui.wb); return; }
+      if (t.dataset.bna != null) { const row = t.closest('.bf'); if (row) row.querySelectorAll('input.field,input[data-boffer]').forEach((i) => { i.disabled = t.checked; }); return; }
       if (t.dataset.r != null && t.dataset.k) { const rec = ui.imp.recs[+t.dataset.r], row = rec.rows.find((x) => x.k === t.dataset.k); if (row) row.on = t.checked; const b = $('#clApply', root); const n = nChosen(); b.disabled = !n; b.textContent = `Save ${n} value${n === 1 ? '' : 's'}`; return; }
       if (t.dataset.br != null && t.dataset.k) { const rec = ui.imp.brandRecs[+t.dataset.br], row = rec.rows.find((x) => x.k === t.dataset.k); if (row) row.on = t.checked; if (row && t.checked && (row.k === 'units' || row.k === 'revenueGBPm')) { const y = rec.rows.find((x) => x.k === 'figuresYear'); if (y && y.status !== 'same') { y.on = true; const cb = root.querySelector(`input[data-br="${t.dataset.br}"][data-k="figuresYear"]`); if (cb) cb.checked = true; } } const b = $('#clApply', root), n = nChosen(); b.disabled = !n; b.textContent = `Save ${n} value${n === 1 ? '' : 's'}`; return; }
       if (t.id === 'clFb') { ui.fb = t.value; return renderList(); }
@@ -655,8 +764,8 @@
     root.addEventListener('toggle', (e) => { const d = e.target; if (d.classList && d.classList.contains('cl-model')) { if (d.open) ui.open.add(d.dataset.id); else ui.open.delete(d.dataset.id); } }, true);
     root.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.dataset && e.target.dataset.k && e.target.dataset.id && e.target.classList.contains('field')) { e.preventDefault(); e.target.blur(); } });
 
-    RENDER.collect = () => { if (!root.dataset.ready) skeleton(); fillContext(); renderPreview(); renderList(); renderBrief(); };
-    X.collectOpen = (brand, model) => { ui.brand = brand || ui.brand; ui.model = model || ''; go('collect'); const m = $('#clModel', root); if (m) m.value = ui.model; fillContext(); const b = $('#clBrand', root); if (b) b.value = ui.brand; };
+    RENDER.collect = () => { if (!root.dataset.ready) skeleton(); if (!ui.wb || !C.brands.includes(ui.wb)) ui.wb = rankBrands()[0] || ''; renderList(); renderBrief(); };
+    X.collectOpen = (brand, model) => { if (brand && C.brands.includes(brand)) { ui.wb = brand; ui.imp = null; } ui.model = model || ''; go('collect'); const m = $('#clModel', root); if (m) m.value = ui.model; };
   };
   return api;
 });
