@@ -1,12 +1,14 @@
 import {NextResponse} from 'next/server';
 
-const PUBLIC = new Set(['/login', '/login.html', '/api/login', '/api/refresh', '/api/digest']);
+// Cron routes (/api/refresh, /api/digest, /api/recheck) check the cron bearer token themselves, and refuse anyone else without a session.
+const PUBLIC = new Set(['/login', '/login.html', '/api/login', '/api/refresh', '/api/digest', '/api/recheck']);
 
 async function verify(raw, secret) {
-  const [e, s] = String(raw || '').split('.');
-  if (!e || !s || Number(e) < Date.now() || !secret) return false;
+  // "<expiry>.<name>.<sig>" (v3.13, signed over "<expiry>.<name>") or the older "<expiry>.<sig>".
+  const parts = String(raw || '').split('.'), e = parts[0], s = parts[parts.length - 1], signed = parts.length === 3 ? parts[0] + '.' + parts[1] : e;
+  if (parts.length < 2 || parts.length > 3 || !e || !s || Number(e) < Date.now() || !secret) return false;
   const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), {name: 'HMAC', hash: 'SHA-256'}, false, ['sign']);
-  const x = [...new Uint8Array(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(e)))].map(b => b.toString(16).padStart(2, '0')).join('');
+  const x = [...new Uint8Array(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(signed)))].map(b => b.toString(16).padStart(2, '0')).join('');
   return x === s;
 }
 

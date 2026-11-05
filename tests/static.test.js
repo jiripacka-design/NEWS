@@ -97,3 +97,26 @@ test('v3.11: menu at the top, map hover without browser tooltips, page reader an
   assert.match(fs.readFileSync('lib/scanner.js','utf8'),/isRepeat\(/);assert.match(fs.readFileSync('app/api/news/route.js','utf8'),/groupStories/);
   assert.ok(h.includes('id="runRing" width="0" height="0"'),'the hidden scan ring takes no room');
 });
+
+test('v3.12: a picture per model and re-checks are wired in',()=>{
+  const p=fs.readFileSync('public/pm.js','utf8'),c=fs.readFileSync('public/collect.js','utf8'),r=fs.readFileSync('app/api/brand-photos/route.js','utf8'),v=JSON.parse(fs.readFileSync('vercel.json','utf8'));
+  for(const k of ['pictureFromPage','autoPicture','modelStrip','thumbBtn','data-mpicpage'])assert.ok(p.includes(k),k);
+  for(const k of ['runRecheck','renderRc','buildRecheckBrief','data-aimode','data-verify','/api/recheck','picRow'])assert.ok(c.includes(k),k);
+  assert.ok(r.includes('findOnPage')&&r.includes("q.get('src')"),'pictures can come from a product page');
+  assert.ok(v.crons.some(x=>x.path==='/api/recheck'),'monthly re-check job');
+});
+
+test('every browser script parses',async()=>{
+  const vm=await import('node:vm');
+  for(const f of fs.readdirSync('public').filter(x=>x.endsWith('.js')))assert.doesNotThrow(()=>new vm.Script(fs.readFileSync('public/'+f,'utf8'),{filename:f}),f);
+  const h=fs.readFileSync('public/tracker.html','utf8');[...h.matchAll(/<script>([\s\S]*?)<\/script>/g)].forEach((m,i)=>assert.doesNotThrow(()=>new vm.Script(m[1]),'inline script '+i));
+});
+
+test('v3.13: history, alerts, backups, discontinued, street prices, battle card and named sign-in are wired in',()=>{
+  const p=fs.readFileSync('public/pm.js','utf8'),c=fs.readFileSync('public/collect.js','utf8'),h=fs.readFileSync('public/tracker.html','utf8'),x=fs.readFileSync('proxy.js','utf8'),l=fs.readFileSync('public/login.html','utf8');
+  assert.ok(h.includes('<script src="/history.js"></script>'));
+  for(const k of ['battleCard','bcRivals','bcPoints','histSvg','isDisc','chDisc','me-chip'])assert.ok(p.includes(k),k);
+  for(const k of ['streetBlock','statusBlock','data-shopadd','data-gone',"via: 'collect'","via: 're-check'"])assert.ok(c.includes(k),k);
+  assert.ok(x.includes("'/api/recheck'"),'the weekly re-check job gets past the sign-in check');assert.ok(x.includes('parts.length === 3'),'the middleware accepts named sessions');
+  assert.ok(l.includes('id=n'),'sign-in asks for a name');
+});

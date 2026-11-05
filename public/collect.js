@@ -447,7 +447,11 @@
   api.mount = function (X) {
     const { S, api: call, RENDER, mkView, mkNav, go, C } = X, { $, esc, toast } = C;
     const today = () => new Date().toISOString().slice(0, 10);
-    const ui = { text: '', model: '', modelSel: '', imp: null, scope: 'gaps', bb: '', size: 8, page: 0, wb: '', allFacts: false, method: 'ai', url: '', fetching: false, fetchMsg: '', open: new Set() };
+    const ui = { text: '', model: '', modelSel: '', imp: null, scope: 'gaps', bb: '', size: 8, page: 0, wb: '', allFacts: false, method: 'ai', url: '', fetching: false, fetchMsg: '', open: new Set(), aiMode: 'gaps', recheckRead: false, pageImage: '', usePic: true, rc: { results: {}, running: false, done: 0, total: 0, off: {}, failed: [] } };
+    const STALE = 90, age = (d) => (d ? Math.floor((Date.now() - Date.parse(d)) / 864e5) : Infinity), stale = (p) => p.status !== 'discontinued' && age(p.lastVerified) > STALE, disc = (p) => p.status === 'discontinued';
+    const pageOf = (p) => [p.url, p.sourceUrl].find((u) => /^https:\/\//i.test(String(u || ''))) || '';
+    const fmtD = (d) => (d ? new Date(d + (d.length === 10 ? 'T12:00:00' : '')).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'never');
+    const thumb = (p, cls) => { const m = X.modelPic(p); return m ? `<img class="${cls}" src="${esc(m)}" alt="" loading="lazy">` : `<span class="${cls} empty" aria-hidden="true"></span>`; };
     try { const m = localStorage.getItem('cih_cl_method'); if (['fetch', 'ai', 'paste', 'type'].includes(m)) ui.method = m; } catch (e) { /* private mode */ }
     const root = mkView('collect', ''); mkNav('collect', 'Collect data', 'competitors');
     const us = () => X.usName();
@@ -459,7 +463,7 @@
 
     function skeleton() {
       root.innerHTML = `<div class="head"><div><h2>Collect data</h2><div class="sub">Pick a brand, see what is missing, then get it from a product page, an AI or by typing it. Every value is checked before it is saved, and nothing you already have is replaced unless you tick it.</div></div><div class="source-actions"><button type="button" class="imagebtn" id="clBulkBtn">Many brands at once</button></div></div>
-        <div id="clOverview"></div><div id="clWork"></div>
+        <div id="clOverview"></div><div id="clRc"></div><div id="clWork"></div><datalist id="clShops">${['Evans Cycles', 'Halfords', 'Cycle Republic', 'Tredz', 'Sigma Sports', 'Wiggle', 'Leisure Lakes', 'Rutland Cycling', 'Mike\'s Bikes', 'Brompton Junction', 'Amazon UK'].map((x) => `<option value="${x}">`).join('')}</datalist>
         <details class="panel cl-bulk" id="clBulk"><summary><strong>Many brands at once</strong> <span class="muted">spreadsheets and bulk AI requests</span></summary>
           <div class="sub">Download a spreadsheet with every brand or model, fill in what you know, then choose it here. The check-and-save step opens in the brand card above, so nothing is saved until you have looked at it.</div>
           <div class="source-actions"><button type="button" class="imagebtn" id="clTplM">Download models to fill in</button><button type="button" class="imagebtn" id="clTplB">Download brands to fill in</button><button type="button" class="imagebtn" id="clPick">Choose a filled-in file</button><input type="file" id="clFile" accept=".csv,.json,.txt,.tsv,text/*,application/json" hidden></div>
@@ -471,26 +475,29 @@
 
     /* ----- step 3: check and save ----- */
     function readNow(ctxModel) {
-      const ta = $('#clText', root); if (ta) ui.text = ta.value;
+      const ta = $('#clText', root); if (ta) ui.text = ta.value; if (ctxModel == null) ui.pageImage = '';
       const sel = ui.modelSel, typed = (($('#clModel', root) || {}).value || '').trim();
       ui.model = ctxModel != null ? ctxModel : sel && sel !== '__new' && sel !== '__auto' ? sel : sel === '__new' ? typed : '';
       if (!ui.text.trim()) { ui.imp = null; return renderPreview(); }
       const r = readInput(ui.text, { brand: ui.wb || '', model: ui.model });
+      ui.recheckRead = ui.method === 'ai' && ui.aiMode === 'recheck'; const rcOn = (x) => x.status === 'new' || (ui.recheckRead && x.status === 'differs');
       r.recs.forEach((rec) => {
         const m = findExisting(rec, S.products, C.brands); rec.brand = m.brand || rec.brand; rec.match = m.p; rec.how = m.how;
-        rec.rows = diffRecord(rec, m.p); rec.rows.forEach((x) => { x.on = x.status === 'new'; });
+        rec.rows = diffRecord(rec, m.p); rec.rows.forEach((x) => { x.on = rcOn(x); });
+        rec.disc = !!(m.p && !disc(m.p) && /discontinued|no longer (sold|available|made)|not (sold|available) any ?more/i.test(String(rec.values.notes || ''))); rec.discOn = rec.disc;
         rec.problem = !rec.brand ? 'No brand found: every model in the answer needs a brand.' : !rec.model && !m.p ? 'Which model is this? Choose it in “This is for” above, then check again.' : '';
       });
       (r.brandRecs || []).forEach((rec) => {
         const nm = C.brands.find((b) => norm(b) === norm(rec.brand)); rec.exists = !!nm; rec.brand = nm || rec.brand;
-        rec.rows = diffBrand(rec, nm ? X.brandNow(nm) : {}); rec.rows.forEach((x) => { x.on = x.status === 'new' || !nm; });
+        rec.rows = diffBrand(rec, nm ? X.brandNow(nm) : {}); rec.rows.forEach((x) => { x.on = rcOn(x) || !nm; });
         // The year belongs to the volume/revenue figures. If those would not be replaced, do not stamp the old figure with the new year.
         const stale = rec.rows.some((x) => (x.k === 'units' || x.k === 'revenueGBPm') && x.status === 'differs' && !x.on), yr = rec.rows.find((x) => x.k === 'figuresYear');
         if (stale && yr && yr.status !== 'same') { yr.on = false; yr.hint = 'Left off: it would label the figure you already have with a different year. Tick bikes sold per year / revenue as well to use it.'; }
       });
       ui.imp = r; renderPreview();
     }
-    function nChosen() { return ui.imp ? (ui.imp.brandRecs || []).reduce((n, r) => n + r.rows.filter((x) => x.on && x.k !== 'sourceUrl').length + (r.exists ? 0 : 1), 0) + ui.imp.recs.reduce((n, r) => n + (r.problem ? 0 : r.rows.filter((x) => x.on).length) + (r.problem ? 0 : r.na.length ? 1 : 0), 0) : 0; }
+    const nConfirm = () => (ui.imp && ui.recheckRead ? ui.imp.recs.filter((r) => r.match && !r.problem).length + (ui.imp.brandRecs || []).filter((r) => r.exists).length : 0);
+    function nChosen() { return ui.imp ? ui.imp.recs.filter((r) => r.disc && r.discOn).length + (ui.imp.brandRecs || []).reduce((n, r) => n + r.rows.filter((x) => x.on && x.k !== 'sourceUrl').length + (r.exists ? 0 : 1), 0) + ui.imp.recs.reduce((n, r) => n + (r.problem ? 0 : r.rows.filter((x) => x.on).length) + (r.problem ? 0 : r.na.length ? 1 : 0), 0) : 0; }
     const stTag = (x) => (x.status === 'new' ? '<span class="cl-st-new">New</span>' : '<span class="cl-st-diff" title="You already have a different value. Tick to replace it.">Replaces</span>');
     function recTable(rows, attr, labels) {
       const body = rows.filter((x) => x.status !== 'same').map((x) => `<tr class="${x.on ? '' : 'off'}"><td class="cl-ck"><input type="checkbox" ${attr}="${x.i}" data-k="${esc(x.k)}"${x.on ? ' checked' : ''} aria-label="Use ${esc(x.label)}"></td><td>${esc(x.label)}${x.hint ? `<div class="muted cl-hint">${esc(x.hint)}</div>` : ''}</td><td class="muted">${esc(x.cur) || '—'}</td><td class="cl-next">${esc(x.next)}</td><td>${stTag(x)}</td></tr>`).join('');
@@ -507,6 +514,7 @@
         rec.rows.forEach((x) => { x.i = i; });
         const tag = rec.match ? `<span class="cl-tag">${rec.how === 'near' ? 'Matched to an existing model by name' : 'Existing model'}</span>` : '<span class="cl-tag new">New model: it will be added</span>';
         return `<div class="cl-rec"><div class="cl-rec-h"><h4>${esc(rec.brand || '?')} ${esc(rec.match ? rec.match.model : rec.model || '?')}</h4>${tag}${rec.na.length ? `<span class="muted">${rec.na.length} marked not published</span>` : ''}</div>
+          ${rec.disc ? `<label class="cl-picoffer"><input type="checkbox" data-discr="${i}"${rec.discOn ? ' checked' : ''}><span><strong>Mark as discontinued.</strong> The answer says: “${esc(String(rec.values.notes).slice(0, 160))}”</span></label>` : ''}
           ${rec.problem ? `<div class="cl-warn">${esc(rec.problem)}</div>` : recTable(rec.rows, 'data-r', { rejected: rec.rejected, L: LABEL })}
           ${rec.notes.length ? `<div class="sub cl-conv">Converted: ${esc(rec.notes.join('; '))}</div>` : ''}
           ${rec.unknown && rec.unknown.length ? `<details class="gaps"><summary>${pl(rec.unknown.length, 'line was', 'lines were')} not recognised as a spec</summary><div class="sub">${rec.unknown.slice(0, 40).map(esc).join('<br>')}</div></details>` : ''}</div>`;
@@ -516,10 +524,17 @@
         return `<div class="cl-rec"><div class="cl-rec-h"><h4>${esc(rec.brand)} <span class="muted">company facts</span></h4>${rec.exists ? '<span class="cl-tag">Existing competitor</span>' : '<span class="cl-tag new">New competitor: it will be added, with news sources</span>'}</div>${recTable(rec.rows, 'data-br', { rejected: rec.rejected, L: BLABEL })}</div>`;
       }).join('');
       const n = nChosen();
-      box.innerHTML = `<div class="cl-sec cl-check"><div class="cl-sec-h"><span class="cl-num">3</span><div><h3>Check and save</h3><div class="sub">Read as ${kindTxt}. New values are ticked; values that would replace what you have are not.</div></div></div>
+      box.innerHTML = `<div class="cl-sec cl-check"><div class="cl-sec-h"><span class="cl-num">3</span><div><h3>Check and save</h3><div class="sub">Read as ${kindTxt}. ${ui.recheckRead ? 'This is a re-check: new values and values that have changed are ticked. Everything in the answer is marked verified today when you save.' : 'New values are ticked; values that would replace what you have are not.'}</div></div></div>
         <div class="cl-sum"><span class="ok">${nNew} new</span>${nDiff ? `<span class="warn">${nDiff} would replace</span>` : ''}${nBad ? `<span class="bad">${nBad} could not be used</span>` : ''}${nSame ? `<span class="muted">${nSame} already saved</span>` : ''}</div>
         ${recs}${brs}
-        <div class="cl-savebar"><button type="button" class="primary" id="clApply"${n ? '' : ' disabled'}>Save ${pl(n, 'value')}</button><button type="button" class="imagebtn" id="clClear">Discard</button><span class="sub">AI answers and web pages can be wrong: glance down the “Checked value” column before saving.</span></div></div>`;
+        <div class="cl-savebar">${picRow()}<button type="button" class="primary" id="clApply"${n || nConfirm() ? '' : ' disabled'}>${saveLabel(n)}</button><button type="button" class="imagebtn" id="clClear">Discard</button><span class="sub">AI answers and web pages can be wrong: glance down the “Checked value” column before saving.</span></div></div>`;
+    }
+    const saveLabel = (n) => (ui.recheckRead ? (n ? `Save ${pl(n, 'change')} and mark as verified` : 'Mark as verified today') : `Save ${pl(n, 'value')}`);
+    // A picture found when reading a product page: offered for the model it belongs to.
+    function picRow() {
+      if (!ui.pageImage || !ui.imp || ui.imp.recs.length !== 1) return '';
+      const rec = ui.imp.recs[0], has = rec.match && X.modelPic(rec.match);
+      return `<label class="cl-picoffer"><input type="checkbox" id="clUsePic"${ui.usePic ? ' checked' : ''}><img src="/api/brand-photos?src=${encodeURIComponent(ui.pageImage)}" alt="" loading="lazy"><span>${has ? 'Replace the model\'s picture with the one on the page' : 'Use the picture on the page as the model\'s picture'}</span></label>`;
     }
     async function apply() {
       const list = [], bups = {}, news = []; let nb = 0;
@@ -529,10 +544,12 @@
         let n = 0; rec.rows.filter((x) => x.on).forEach((x) => x.keys.forEach((k) => { o[k] = rec.values[k]; n++; }));
         const base = rec.match ? (rec.match.na || []) : [], na = [...new Set([...base, ...rec.na])].filter((k) => !(k in o) && !(k === 'fold' && 'foldH' in o));
         if (na.length !== base.length || na.some((k) => !base.includes(k))) { o.na = na; n++; }
-        if (n) { o.lastVerified = today(); list.push(o); }
+        if (rec.disc && rec.discOn) { o.status = 'discontinued'; n++; }
+        if (n || (ui.recheckRead && rec.match)) { o.lastVerified = today(); list.push(o); }
       });
       (ui.imp.brandRecs || []).forEach((rec) => {
-        const f = {}, on = rec.rows.filter((x) => x.on); if (!on.length && rec.exists) return;
+        const f = {}, on = rec.rows.filter((x) => x.on);
+        if (!on.length && rec.exists) { if (ui.recheckRead) { bups[rec.brand] = { lastVerified: today() }; nb++; } return; }
         if (!rec.exists) news.push(rec);
         let regions = null;
         on.forEach((x) => {
@@ -545,15 +562,18 @@
         if (rec.note) f.dataNote = [X.brandNow(rec.brand).dataNote || '', rec.note].filter(Boolean).join(' ').slice(0, 1200);
         if (Object.keys(f).length) { f.lastVerified = today(); bups[rec.brand] = f; nb++; }
       });
-      if (!list.length && !nb && !news.length) return toast('Nothing ticked');
+      const pic = ui.pageImage && ui.usePic && ui.imp.recs.length === 1 && !ui.imp.recs[0].problem ? ui.pageImage : '', picRec = pic ? ui.imp.recs[0] : null;
+      if (!list.length && !nb && !news.length && !pic) return toast('Nothing ticked');
       const btn = $('#clApply', root); if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
       try {
         for (const rec of news) { const w = (rec.rows.find((x) => x.k === 'website') || {}).on ? rec.values.website : ''; const r0 = await call('POST', '/api/brands', { addCompetitor: { name: rec.brand, category: 'Folding bike', website: w || '', createSources: true } }); X.setBrandData(r0); }
         if (news.length) X.applyBrands();
         const msg = [];
-        if (list.length) { const r = await call('POST', '/api/products', { products: list }); S.products = r.products; msg.push(`${pl(r.added, 'model')} added, ${r.updated} updated`); }
-        if (nb) { const r = await call('POST', '/api/brands', { updates: bups }); X.setBrandData(r); X.applyBrands(); msg.push(`${pl(nb, 'brand')} updated`); }
+        if (list.length) { const r = await call('POST', '/api/products', { products: list, via: ui.recheckRead ? 'ai-check' : 'collect' }); S.products = r.products; msg.push(`${pl(r.added, 'model')} added, ${r.updated} updated`); }
+        if (nb) { const r = await call('POST', '/api/brands', { updates: bups, via: ui.recheckRead ? 'ai-check' : 'collect' }); X.setBrandData(r); X.applyBrands(); msg.push(`${pl(nb, 'brand')} updated`); }
         if (news.length) msg.push(pl(news.length, 'new competitor'));
+        if (pic) { const m = picRec.match || S.products.find((p) => p.brand === picRec.brand && p.model.toLowerCase() === String(picRec.model || '').toLowerCase()); if (m) { try { await X.autoPicture(m.id, pic); msg.push('picture saved'); } catch (err) { msg.push('the picture could not be saved (' + err.message + ')'); } } }
+        ui.pageImage = '';
         toast(msg.join(', ')); ui.done = { models: list.length, brands: nb, fresh: news.length };
         ui.imp = null; ui.text = ''; const t = $('#clText', root); if (t) t.value = ''; renderList(); renderBrief(); showDone();
       } catch (e) { toast('Not saved: ' + e.message); if (btn) { btn.disabled = false; btn.textContent = `Save ${pl(nChosen(), 'value')}`; } }
@@ -582,7 +602,7 @@
       return { n, na, val, missing, pct: Math.round(((FACT_KEYS.length - missing.length) / FACT_KEYS.length) * 100) };
     }
     function brandProgress(b) {
-      const f = factState(b), ms = S.products.filter((p) => p.brand === b); let d = 0, t = 0;
+      const f = factState(b), ms = S.products.filter((p) => p.brand === b && !disc(p)); let d = 0, t = 0;
       ms.forEach((p) => { const g = progress(p); d += g.done; t += g.total; });
       return { facts: f, models: ms.length, specs: t ? Math.round((d / t) * 100) : null, gaps: f.missing.length + ms.reduce((a, p) => a + missingFor(p).length, 0) };
     }
@@ -595,7 +615,9 @@
       const all = C.brands.map((b) => ({ b, p: brandProgress(b) })), avgFacts = all.length ? Math.round(all.reduce((a, x) => a + x.p.facts.pct, 0) / all.length) : 0;
       const tot = S.products.reduce((a, p) => { const g = progress(p); return [a[0] + g.done, a[1] + g.total]; }, [0, 0]), specs = tot[1] ? Math.round((tot[0] / tot[1]) * 100) : 0;
       const noModels = all.filter((x) => !x.p.models).length, start = rankBrands().filter((b) => brandProgress(b).gaps).slice(0, 6);
-      box.innerHTML = `<div class="cl-stats"><div><span>Brand facts filled</span><b>${avgFacts}%</b></div><div><span>Model specs filled</span><b>${specs}%</b></div><div><span>Brands with no models</span><b>${noModels} <small>of ${all.length}</small></b></div><div><span>Models tracked</span><b>${S.products.length}</b></div></div>
+      const old = S.products.filter(stale), oldLinked = old.filter(pageOf), nPend = Object.values(ui.rc.results).filter((r) => (r.status === 'changed' || r.status === 'new' || r.status === 'gone') && S.products.some((p) => p.id === r.id && !disc(p))).length;
+      box.innerHTML = `<div class="cl-stats"><div><span>Brand facts filled</span><b>${avgFacts}%</b></div><div><span>Model specs filled</span><b>${specs}%</b></div><div><span>Brands with no models</span><b>${noModels} <small>of ${all.length}</small></b></div><div><span>Models tracked</span><b>${S.products.length}</b></div><div><span>Specs checked in the last ${STALE} days</span><b>${S.products.length - old.length} <small>of ${S.products.length}</small></b></div>
+        <div class="cl-stat-act"><button type="button" class="imagebtn" id="clRcStale"${oldLinked.length ? '' : ' disabled'} title="Re-read the product page of every model not verified for ${STALE} days. Changes wait for you to approve them.">${oldLinked.length ? `Re-check ${pl(oldLinked.length, 'out-of-date model')}` : 'Every model is up to date'}</button>${nPend && !ui.rc.running ? `<button type="button" class="linkbtn" id="clRcShow">${pl(nPend, 'model has', 'models have')} changes to review</button>` : ''}</div></div>
         <div class="cl-brandbar"><label class="ctl"><span>Brand</span><select class="field" id="clWb">${rankBrands().map((b) => `<option value="${esc(b)}"${b === ui.wb ? ' selected' : ''}>${esc(b)}${b === us() ? ' (us)' : ''} · ${brandProgress(b).gaps} gaps</option>`).join('')}</select></label>
           <div class="cl-sugg"><span class="muted">Where to start</span>${start.length ? start.map((b) => `<button type="button" class="cl-chip${b === ui.wb ? ' on' : ''}" data-wb="${esc(b)}" title="${esc(b)}: ${brandProgress(b).gaps} values missing">${esc(b)}${b === us() ? ' <span class="pm-us">US</span>' : (S.brands[b] || {}).watch ? ' ★' : ''}<b>${brandProgress(b).gaps}</b></button>`).join('') : '<span class="muted">Every brand is complete.</span>'}</div>
           <button type="button" class="imagebtn" id="clNext" title="Go to the next brand that still has gaps">Next brand with gaps →</button></div>`;
@@ -624,6 +646,25 @@
       return L.join('\n');
     }
 
+    // Re-check request: everything we have, with the date it was last checked, for the AI to confirm or correct.
+    function buildRecheckBrief(b) {
+      const n = X.brandNow(b), ms = S.products.filter((p) => p.brand === b), site = (S.brands[b] || {}).website, L = [];
+      const facts = BFIELDS.filter((f) => n[f.k] != null && n[f.k] !== '' && f.k !== 'sourceUrl');
+      L.push(`You are helping a UK bicycle retailer keep a competitor profile up to date for the folding-bike / e-bike brand "${b}"${site ? ' (' + site + ')' : ''}. Use a web search / browsing tool.`, '',
+        'TASK: check every value below against the latest information. Prices, specs and line-ups change: models get new prices, new versions or are discontinued.', '',
+        'RULES', '- Check the brand\'s own site first (UK site for prices in £), then annual reports or reputable trade press.',
+        '- Give the CURRENT value for every field listed, also when it has not changed. If you cannot verify a value, leave that field out (do not guess).',
+        '- If a model is no longer sold, add "notes": "discontinued" for it. If the brand now sells models not listed, add them.',
+        '- Numbers are plain numbers with no units or symbols. Money in GBP (priceEUR / priceUSD if no £ price). Revenue in £ millions. Folded size as foldH, foldW, foldL in cm.',
+        '- sourceUrl is the exact page you used. Keep each model\'s exact name.', '- Return ONLY valid JSON in exactly this shape:', '',
+        `{"brands":[{"brand":"${b}","<field>":<value>,"sourceUrl":"https://...","notes":""}],"products":[{"brand":"${b}","model":"<exact model name>","<field>":<value>,"sourceUrl":"https://...","notes":""}]}`, '',
+        `1. COMPANY FACTS (last checked ${fmtD((S.brands[b] || {}).lastVerified)})`);
+      L.push(...(facts.length ? facts.map((f) => `- ${f.k}: ${n[f.k]}   (${f.l})`) : ['- nothing recorded yet']));
+      L.push('', '2. MODELS');
+      ms.forEach((p, i) => { const have = FIELDS.filter((f) => filled(p, f.k) && f.k !== 'sourceUrl' && f.k !== 'url').map((f) => `${f.k}=${f.k === 'fold' ? [p.foldH, p.foldW, p.foldL].join('x') : p[f.k]}`); L.push(`${i + 1}. ${p.model} (last checked ${fmtD(p.lastVerified)}${pageOf(p) ? ', page: ' + pageOf(p) : ''}) | ${have.join(' | ') || 'no specs yet'}`); });
+      if (!ms.length) L.push('- none yet: list the models on sale now with their specs.');
+      return L.join('\n');
+    }
     const naBox = (attr, k, on, label) => `<label class="cl-na" title="Tick when the company does not publish this, so it stops showing as missing"><input type="checkbox" ${attr}="${esc(k)}"${on ? ' checked' : ''}${label ? ` aria-label="${esc(label)} not published"` : ''}> Not published</label>`;
     function factsForm(b) {
       const st = factState(b), n = st.n, all = ui.allFacts, show = (k) => all || st.missing.includes(k) || st.na.includes(k);
@@ -666,16 +707,44 @@
       const changed = Object.keys(f).filter((k) => k !== 'na' && k !== 'sources').length || JSON.stringify([...na].sort()) !== JSON.stringify(st.na.slice().sort()) || f.sources;
       if (!changed) return toast('Nothing to save yet: fill in a box or tick Not published');
       f.lastVerified = today();
-      try { const r = await call('POST', '/api/brands', { updates: { [b]: f } }); X.setBrandData(r); X.applyBrands(); toast(`${b} saved`); renderList(); renderBrief(); }
+      try { const r = await call('POST', '/api/brands', { updates: { [b]: f }, via: 'collect' }); X.setBrandData(r); X.applyBrands(); toast(`${b} saved`); renderList(); renderBrief(); }
       catch (e) { toast('Not saved: ' + e.message); }
     }
 
+    // On sale or discontinued (v3.13). A discontinued model stays saved, out of the gaps, re-checks and charts.
+    function statusBlock(p) {
+      return disc(p) ? `<div class="cl-disc"><strong>Discontinued${p.discontinuedAt ? ' since ' + fmtD(p.discontinuedAt) : ''}.</strong> <span class="muted">It is kept for the history and comparisons, and left out of gaps, re-checks and charts.</span><button type="button" class="linkbtn" data-disc="${esc(p.id)}" data-on="0">Back on sale</button></div>`
+        : `<div class="cl-disc-row"><button type="button" class="linkbtn" data-disc="${esc(p.id)}" data-on="1" title="No longer sold: keep it, but leave it out of gaps, re-checks and charts">Mark as discontinued</button></div>`;
+    }
+    // Street prices at shops (v3.13): read every Monday with the re-check, or now.
+    function streetBlock(p) {
+      if (disc(p)) return '';
+      const r = p.retail || [], list = p.priceGBP, pct = (v) => (list && v ? Math.round(((v - list) / list) * 1000) / 10 : null);
+      const rows = r.map((x, i) => { const d = pct(x.price); return `<tr><td><a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.shop)}</a></td><td class="num">${x.price != null ? '£' + Number(x.price).toLocaleString('en-GB') : '—'}</td><td class="num">${d == null ? '' : `<span class="${d < 0 ? 'pc-down' : d > 0 ? 'pc-up' : 'muted'}">${d > 0 ? '+' : ''}${d}%</span>`}</td><td class="muted">${x.error ? `<span class="cl-st-bad">${esc(x.error)}</span>` : x.at ? 'checked ' + fmtD(x.at.slice(0, 10)) : 'not checked yet'}</td><td><button type="button" class="linkbtn" data-shopdel="${esc(p.id)}" data-i="${i}" aria-label="Remove ${esc(x.shop)}">Remove</button></td></tr>`; }).join('');
+      return `<div class="cl-street"><div class="cl-street-h"><strong>Street prices</strong><span class="muted">What shops charge now${list ? `, against the list price of £${Number(list).toLocaleString('en-GB')}` : ''}. Read every Monday.</span>${r.length ? `<button type="button" class="linkbtn" data-rcone="${esc(p.id)}">Check now</button>` : ''}</div>
+        ${r.length ? `<div class="tbl-wrap"><table class="pm-table cl-table"><thead><tr><th>Shop</th><th class="num">Price</th><th class="num">vs list</th><th>Checked</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
+        <div class="cl-add-row cl-shop-row"><input class="field" data-shopname="${esc(p.id)}" placeholder="Shop, e.g. Evans Cycles" list="clShops"><input class="field" data-shopurl="${esc(p.id)}" placeholder="Link to this model on the shop's site (https://…)" inputmode="url"><button type="button" class="imagebtn" data-shopadd="${esc(p.id)}">Add shop</button></div></div>`;
+    }
+    async function saveRetail(p, retail, msg) {
+      try { const r = await call('POST', '/api/products', { product: { id: p.id, brand: p.brand, model: p.model, retail }, via: 'collect' }); S.products = r.products; ui.open.add(p.id); renderList(); if (msg) toast(msg); }
+      catch (e) { toast('Not saved: ' + e.message); }
+    }
+    async function setDisc(id, on) {
+      const p = S.products.find((x) => x.id === id); if (!p) return;
+      if (on && !confirm(`Mark ${p.model} as discontinued?\n\nIt stays saved (with its history) but is left out of gaps, re-checks and charts. You can put it back on sale at any time.`)) return;
+      try { const r = await call('POST', '/api/products', { product: { id, brand: p.brand, model: p.model, status: on ? 'discontinued' : '' }, via: 'collect' }); S.products = r.products; ui.open.add(id); toast(on ? `${p.model} marked as discontinued` : `${p.model} is on sale again`); renderList(); }
+      catch (e) { toast('Not saved: ' + e.message); }
+    }
     function modelCard(p) {
       const g = progress(p), miss = missingFor(p), na = (p.na || []).filter((k) => FIELDS.some((f) => f.k === k)), open = ui.open.has(p.id);
       const groups = []; miss.forEach((f) => { let gr = groups.find((x) => x[0] === f.g); if (!gr) groups.push(gr = [f.g, []]); gr[1].push(f); });
       const body = groups.map(([t, fs]) => `<fieldset class="cl-group"><legend>${esc(t)}</legend><div class="bf-grid">${fs.map((f) => `<div class="bf${SHORT.has(f.k) ? ' short' : ''}"><div class="bf-top"><label class="bf-l" for="ms-${esc(p.id)}-${f.k}">${esc(f.l)}</label>${naBox(`data-id="${esc(p.id)}" data-na`, f.k, false, f.l)}</div><input class="field" id="ms-${esc(p.id)}-${f.k}" data-id="${esc(p.id)}" data-k="${esc(f.k)}" placeholder="${esc(f.h)}" maxlength="400"><div class="bf-msg" aria-live="polite"></div></div>`).join('')}</div></fieldset>`).join('');
-      return `<details class="cl-model" data-id="${esc(p.id)}"${open ? ' open' : ''}><summary><span class="cl-name">${esc(p.model)}${p.line ? ` <span class="muted">${esc(p.line)}</span>` : ''}</span><span class="cl-meta">${bar(g.pct)}<span class="muted">${g.pct}% · ${miss.length ? miss.length + ' missing' : 'complete'}</span></span></summary>
-        <div class="cl-model-b">${miss.length ? `<div class="sub">Type a value and press Enter (or leave the box): it is checked and saved straight away.</div>${body}` : '<div class="muted">Every spec is filled in or marked not published.</div>'}
+      const pg = pageOf(p), pic = X.modelPic(p), old = stale(p);
+      return `<details class="cl-model" data-id="${esc(p.id)}"${open ? ' open' : ''}><summary>${thumb(p, 'cl-mthumb')}<span class="cl-name">${esc(p.model)}${p.line ? ` <span class="muted">${esc(p.line)}</span>` : ''}</span>${disc(p) ? `<span class="disc-tag">Discontinued${p.discontinuedAt ? ' ' + fmtD(p.discontinuedAt) : ''}</span>` : ''}<span class="cl-ver${old ? ' old' : ''}" title="Specs last verified">${old ? (p.lastVerified ? `Checked ${fmtD(p.lastVerified)}` : 'Never checked') : `Checked ${fmtD(p.lastVerified)}`}</span><span class="cl-meta">${bar(g.pct)}<span class="muted">${g.pct}% · ${miss.length ? miss.length + ' missing' : 'complete'}</span></span></summary>
+        <div class="cl-model-b"><div class="cl-mtools"><div class="cl-pic">${pic ? `<img src="${esc(pic)}" alt="${esc(p.model)}">` : '<span class="cl-pic-empty">No picture yet</span>'}<div class="cl-pic-b"><strong>Picture</strong><span class="muted">${pic ? 'Shown on comparisons, charts and the brand card.' : `Each model has its own picture, e.g. a C Line and a G Line look different.`}</span><div class="cl-row tight"><button type="button" class="imagebtn" data-mpic="${esc(p.id)}">${pic ? 'Change or adjust' : 'Upload a picture'}</button>${pg ? `<button type="button" class="imagebtn" data-mpicpage="${esc(p.id)}">Use the product page's picture</button>` : ''}${pic ? `<button type="button" class="linkbtn" data-mpicdel="${esc(p.id)}">Remove</button>` : ''}</div></div></div>
+          <div class="cl-chk"><strong>Is it still right?</strong><span class="muted">${p.lastVerified ? `Specs last verified ${fmtD(p.lastVerified)} (${age(p.lastVerified)} days ago).` : 'Never verified.'} ${pg ? `Re-reading <a href="${esc(pg)}" target="_blank" rel="noopener noreferrer">its product page</a> shows anything that has changed; you choose what to save.` : 'Add a product page link (Edit on the Product Comparison) to re-check it automatically, or use Ask an AI › Re-check.'}</span><div class="cl-row tight">${pg ? `<button type="button" class="imagebtn" data-rcone="${esc(p.id)}">Re-check now</button>` : ''}<button type="button" class="linkbtn" data-verify="${esc(p.id)}" title="You have checked it yourself and it is still right">Mark as verified today</button></div></div></div>
+          ${statusBlock(p)}${streetBlock(p)}
+          ${miss.length ? `<div class="sub">Type a value and press Enter (or leave the box): it is checked and saved straight away.</div>${body}` : '<div class="muted">Every spec is filled in or marked not published.</div>'}
         ${na.length ? `<div class="cl-nalist">Not published: ${na.map((k) => `<button type="button" class="chip" data-undo="${esc(k)}" data-id="${esc(p.id)}" title="Put back on the list">${esc(LABEL[k] || k)} ×</button>`).join(' ')}</div>` : ''}</div></details>`;
     }
     async function saveField(id, k, raw, inp) {
@@ -683,18 +752,18 @@
       const msg = inp.parentElement.querySelector('.bf-msg'); inp.classList.remove('cl-bad'); if (msg) { msg.textContent = ''; msg.className = 'bf-msg'; }
       const r = coerce(k, raw); if (r.skip) return; if (r.why) { inp.classList.add('cl-bad'); if (msg) { msg.textContent = r.why; msg.className = 'bf-msg bad'; } return; }
       const o = { id, brand: p.brand, model: p.model, ...r.set, lastVerified: today() }, na = (p.na || []).filter((x) => x !== k); if (na.length !== (p.na || []).length) o.na = na;
-      try { const res = await call('POST', '/api/products', { product: o }); S.products = res.products; ui.open.add(id); renderList(); renderBrief(); focusFirst(id); toast(`${LABEL[k] || k} saved${r.note ? ' (' + r.note + ')' : ''}`); }
+      try { const res = await call('POST', '/api/products', { product: o, via: 'collect' }); S.products = res.products; ui.open.add(id); renderList(); renderBrief(); focusFirst(id); toast(`${LABEL[k] || k} saved${r.note ? ' (' + r.note + ')' : ''}`); }
       catch (e) { inp.classList.add('cl-bad'); if (msg) { msg.textContent = 'Not saved: ' + e.message; msg.className = 'bf-msg bad'; } }
     }
     async function setNa(id, k, on) {
       const p = S.products.find((x) => x.id === id); if (!p) return;
       const na = on ? [...new Set([...(p.na || []), k])] : (p.na || []).filter((x) => x !== k);
-      try { const res = await call('POST', '/api/products', { product: { id, brand: p.brand, model: p.model, na } }); S.products = res.products; ui.open.add(id); renderList(); renderBrief(); focusFirst(id); }
+      try { const res = await call('POST', '/api/products', { product: { id, brand: p.brand, model: p.model, na }, via: 'collect' }); S.products = res.products; ui.open.add(id); renderList(); renderBrief(); focusFirst(id); }
       catch (e) { toast('Not saved: ' + e.message); }
     }
     const focusFirst = (id) => { const el = root.querySelector(`details[data-id="${id}"] input.field`); if (el) el.focus({ preventScroll: true }); };
     function renderModelsBox() {
-      const b = ui.wb, ms = S.products.filter((p) => p.brand === b).sort((x, y) => missingFor(y).length - missingFor(x).length || x.model.localeCompare(y.model));
+      const b = ui.wb, ms = S.products.filter((p) => p.brand === b).sort((x, y) => disc(x) - disc(y) || missingFor(y).length - missingFor(x).length || x.model.localeCompare(y.model));
       return `<div class="cl-sub-h"><h4>${esc(b)} models <span class="muted">${ms.length}</span></h4><span class="muted">${ms.length ? 'Open a model to fill its empty specs.' : 'No models yet: add the first one below, or read a product page.'}</span></div>
         <div id="clModelsList">${ms.map(modelCard).join('')}</div>
         <div class="cl-add"><span class="bf-l">Add a model</span><div class="cl-add-row"><input class="field" id="nmName" placeholder="Model name, e.g. C Line 4-speed"><input class="field" id="nmLine" placeholder="Line, e.g. C Line"><input class="field" id="nmPrice" placeholder="Price £ (optional)" inputmode="decimal"><button type="button" class="imagebtn" id="clAddModel">Add model</button></div></div>`;
@@ -702,10 +771,12 @@
 
     /* ----- step 1: what is missing ----- */
     function missingHtml(b) {
-      const st = factState(b), ms = S.products.filter((p) => p.brand === b).map((p) => ({ p, m: missingFor(p) })).sort((x, y) => y.m.length - x.m.length);
+      const st = factState(b), ms = S.products.filter((p) => p.brand === b && !disc(p)).map((p) => ({ p, m: missingFor(p) })).sort((x, y) => y.m.length - x.m.length);
       const facts = st.missing.length ? st.missing.map((k) => `<button type="button" class="cl-gap" data-gofact="${k}">${esc(FACT_LABEL[k] || k)}</button>`).join('') : '<span class="cl-okline">All filled in</span>';
       const models = ms.length ? ms.map((x) => `<button type="button" class="cl-gap${x.m.length ? '' : ' done'}" data-gomodel="${esc(x.p.id)}">${esc(x.p.model)} <b>${x.m.length || '✓'}</b></button>`).join('') : '<span class="muted">No models tracked yet. Read a product page or ask an AI to find them.</span>';
-      return `<div class="cl-miss"><div><div class="cl-miss-l">Company facts <span class="muted">${st.missing.length}</span></div><div class="cl-gaps">${facts}</div></div><div><div class="cl-miss-l">Model specs <span class="muted">${ms.reduce((a, x) => a + x.m.length, 0)}</span></div><div class="cl-gaps">${models}</div></div></div>`;
+      const old = S.products.filter((x) => x.brand === b && stale(x)), fOld = age((S.brands[b] || {}).lastVerified) > STALE;
+      const oldHtml = old.length || fOld ? `<div class="cl-miss-old"><div class="cl-miss-l">Out of date <span class="muted">not verified for ${STALE} days</span></div><div class="cl-gaps">${fOld ? '<button type="button" class="cl-gap old" data-rcai="1">Company facts</button>' : ''}${old.map((x) => `<button type="button" class="cl-gap old" data-gomodel="${esc(x.id)}">${esc(x.model)}</button>`).join('')}</div></div>` : '';
+      return `${oldHtml}<div class="cl-miss"><div><div class="cl-miss-l">Company facts <span class="muted">${st.missing.length}</span></div><div class="cl-gaps">${facts}</div></div><div><div class="cl-miss-l">Model specs <span class="muted">${ms.reduce((a, x) => a + x.m.length, 0)}</span></div><div class="cl-gaps">${models}</div></div></div>`;
     }
 
     /* ----- step 2: the four ways to get the details ----- */
@@ -724,18 +795,22 @@
       if (m === 'fetch') return `<div class="cl-m-b"><p class="sub">Paste a link to a model's page on the maker's or a retailer's site. Its price, weight and specification table are read for you, then checked below.</p>
         <div class="cl-row"><label class="ctl cl-url"><span>Product page</span><input class="field" id="clUrl" type="url" inputmode="url" placeholder="https://www.ternbicycles.com/en/bikes/verge-x11" value="${esc(ui.url)}"></label>${modelPicker(true)}<button type="button" class="primary" id="clFetch"${ui.fetching ? ' disabled' : ''}>${ui.fetching ? 'Reading…' : 'Read page'}</button></div>
         <div class="cl-status${/^Could not/.test(ui.fetchMsg) ? ' bad' : ''}" role="status">${esc(ui.fetchMsg)}</div></div>`;
-      if (m === 'ai') { const brief = buildWorkBrief(b); return `<div class="cl-m-b"><ol class="cl-how"><li><div><strong>Send the request.</strong> It lists exactly what is missing for ${esc(b)} and asks for an answer this page can read. Use an AI with web search on.</div><div class="cl-row tight"><button type="button" class="primary" id="clWbCopy">Copy the request</button>${aiLinks(brief)}<button type="button" class="linkbtn" id="clShowReq">Show the request</button></div><textarea class="field cl-text cl-req" id="clWbBrief" readonly hidden>${esc(brief)}</textarea></li>
+      if (m === 'ai') { const rc = ui.aiMode === 'recheck', brief = rc ? buildRecheckBrief(b) : buildWorkBrief(b); return `<div class="cl-m-b"><div class="cl-row"><div class="seg" role="group" aria-label="What to ask for"><button type="button" data-aimode="gaps" class="${rc ? '' : 'on'}" aria-pressed="${!rc}">Fill the gaps</button><button type="button" data-aimode="recheck" class="${rc ? 'on' : ''}" aria-pressed="${rc}">Re-check what we have</button></div><span class="muted">${rc ? 'Asks the AI to confirm or correct every saved value. Values that changed are ticked; everything confirmed is marked verified today.' : 'Asks only for what is missing.'}</span></div><ol class="cl-how"><li><div><strong>Send the request.</strong> ${rc ? `It lists everything saved for ${esc(b)} with the date it was last checked` : `It lists exactly what is missing for ${esc(b)}`} and asks for an answer this page can read. Use an AI with web search on.</div><div class="cl-row tight"><button type="button" class="primary" id="clWbCopy">Copy the request</button>${aiLinks(brief)}<button type="button" class="linkbtn" id="clShowReq">Show the request</button></div><textarea class="field cl-text cl-req" id="clWbBrief" readonly hidden>${esc(brief)}</textarea></li>
         <li><div><strong>Paste the AI's answer.</strong> It is checked as soon as you paste it.</div><textarea class="field cl-text" id="clText" spellcheck="false" placeholder='Paste the answer here. It starts with {"brands": … or {"products": …'></textarea></li></ol></div>`; }
       if (m === 'paste') return `<div class="cl-m-b"><p class="sub">Copy a specification table from a product page, CSV rows from a spreadsheet, or an AI answer you saved. Labels like “Weight: 12.5 kg” or a label on one line and its value on the next both work.</p>
         <div class="cl-row">${modelPicker(false)}<button type="button" class="imagebtn" id="clPick">Use a file instead</button></div>
         <textarea class="field cl-text" id="clText" spellcheck="false" placeholder="Weight: 12.5 kg&#10;Folded size: 64.5 x 58.5 x 27 cm&#10;Gears: 12-speed"></textarea><div class="cl-row tight"><button type="button" class="primary" id="clRead">Check it</button><span class="muted">or drop a .csv / .json file on the box</span></div></div>`;
       return `<div class="cl-m-b"><div id="clFacts">${factsForm(b)}</div><div id="clModelsBox">${renderModelsBox()}</div></div>`;
     }
+    function verLine(b) {
+      const ms = S.products.filter((x) => x.brand === b), linked = ms.filter(pageOf), f = (S.brands[b] || {}).lastVerified;
+      return `<span class="muted">Facts checked ${fmtD(f)} · ${ms.filter(stale).length ? `${ms.filter(stale).length} of ${ms.length} models out of date` : ms.length ? 'models up to date' : 'no models'}</span><button type="button" class="imagebtn" id="clRcBrand"${linked.length ? '' : ' disabled'} title="Re-read the product page of every ${esc(b)} model now">Re-check ${esc(b)}</button>`;
+    }
     function renderWork() {
       const box = $('#clWork', root); if (!box) return; const b = ui.wb; if (!b) { box.innerHTML = ''; return; }
       const p = brandProgress(b), ta = box.querySelector('#clText'), keep = ta ? ta.value : ui.text, hadFocus = document.activeElement && root.contains(document.activeElement) ? document.activeElement.id : '';
       const isUs = b === us(), w = (S.brands[b] || {}).watch;
-      box.innerHTML = `<div class="panel cl-work"><div class="cl-wh"><div><h2>${esc(b)}${isUs ? ' <span class="pm-us">US</span>' : w ? ' <span class="chip">watching</span>' : ''}</h2><div class="sub">${p.gaps ? `${pl(p.facts.missing.length, 'company fact')} and ${pl(p.gaps - p.facts.missing.length, 'model spec')} still missing.` : 'Complete. Nothing is missing.'}</div></div><div class="cl-wbars">${miniBar('Facts', p.facts.pct)}${miniBar('Models', p.specs)}</div></div>
+      box.innerHTML = `<div class="panel cl-work"><div class="cl-wh"><div><h2>${esc(b)}${isUs ? ' <span class="pm-us">US</span>' : w ? ' <span class="chip">watching</span>' : ''}</h2><div class="sub">${p.gaps ? `${pl(p.facts.missing.length, 'company fact')} and ${pl(p.gaps - p.facts.missing.length, 'model spec')} still missing.` : 'Complete. Nothing is missing.'}</div></div><div class="cl-wbars">${miniBar('Facts', p.facts.pct)}${miniBar('Models', p.specs)}<div class="cl-wver">${verLine(b)}</div></div></div>
         <div class="cl-sec"><div class="cl-sec-h"><span class="cl-num">1</span><div><h3>What is missing</h3><div class="sub">Select an item to fill it in.</div></div></div>${missingHtml(b)}</div>
         <div class="cl-sec"><div class="cl-sec-h"><span class="cl-num">2</span><div><h3>Get the details</h3></div></div>
           <div class="cl-methods" role="tablist" aria-label="How to get the details">${METHODS.map(([k, l, d]) => `<button type="button" role="tab" aria-selected="${ui.method === k}" class="cl-method${ui.method === k ? ' on' : ''}" data-method="${k}"><strong>${l}</strong><small>${d}</small></button>`).join('')}</div>
@@ -752,12 +827,12 @@
       else renderWork();
     }
     function renderList() { renderOverview(); renderWork(); }
-    function selectBrand(b, scroll) { if (!C.brands.includes(b)) return; ui.wb = b; ui.imp = null; ui.text = ''; ui.url = ''; ui.fetchMsg = ''; ui.modelSel = ''; ui.model = ''; ui.allFacts = false; renderList(); if (scroll) { const w = $('#clWork', root); if (w) w.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }
+    function selectBrand(b, scroll) { if (!C.brands.includes(b)) return; ui.wb = b; ui.imp = null; ui.text = ''; ui.url = ''; ui.fetchMsg = ''; ui.modelSel = ''; ui.model = ''; ui.allFacts = false; ui.pageImage = ''; renderList(); if (scroll) { const w = $('#clWork', root); if (w) w.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }
     async function addModel() {
       const name = ($('#nmName', root).value || '').trim(), line = ($('#nmLine', root).value || '').trim(), price = ($('#nmPrice', root).value || '').trim();
       if (!name) { $('#nmName', root).focus(); return toast('Give the model a name'); }
       const o = { brand: ui.wb, model: name }; if (line) o.line = line; if (price) { const r = coerce('priceGBP', price); if (r.why) return toast('Price: ' + r.why); Object.assign(o, r.set); }
-      try { const r = await call('POST', '/api/products', { product: o }); S.products = r.products; const m = S.products.find((p) => p.brand === ui.wb && p.model.toLowerCase() === name.toLowerCase()); if (m) ui.open.add(m.id); toast(`${name} added`); renderList(); renderBrief(); } catch (e) { toast(e.message); }
+      try { const r = await call('POST', '/api/products', { product: o, via: 'collect' }); S.products = r.products; const m = S.products.find((p) => p.brand === ui.wb && p.model.toLowerCase() === name.toLowerCase()); if (m) ui.open.add(m.id); toast(`${name} added`); renderList(); renderBrief(); } catch (e) { toast(e.message); }
     }
     async function fetchPage() {
       const u = (($('#clUrl', root) || {}).value || '').trim(); ui.url = u;
@@ -769,12 +844,68 @@
         let model = sel === '__auto' ? String(d.title || '').replace(new RegExp('^' + ui.wb.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*', 'i'), '').trim() : sel === '__new' ? typed : sel;
         if (!model) model = d.title || '';
         ui.fetchMsg = d.lines.length > 1 ? `Found ${pl(d.lines.length - 1, 'value')} on “${d.title || u}”${d.structured ? ' (from the page’s product data and tables)' : ''}. Check them below.` : 'Could not find a specification table on that page. Copy the specs from the page and use “Paste text or a file” instead.';
-        ui.text = d.lines.join('\n'); readNow(model);
+        ui.text = d.lines.join('\n'); ui.pageImage = d.image || ''; readNow(model);
+        const r0 = ui.imp && ui.imp.recs[0]; ui.usePic = !!ui.pageImage && !(r0 && r0.match && X.modelPic(r0.match)); renderPreview();
       } catch (e) { ui.fetchMsg = e.message; ui.imp = null; renderPreview(); }
       ui.fetching = false; setMethodBody(); scrollToPreview();
     }
     function setMethodBody() { const mb = $('#clMethod', root); if (!mb) return; const keep = (($('#clText', root) || {}).value); mb.innerHTML = methodHtml(ui.wb); const t = $('#clText', root); if (t && keep != null) t.value = keep; }
-    function jumpTo(el) { if (!el) return; el.scrollIntoView({ behavior: 'smooth', block: 'center' }); const f = el.matches('input,select,textarea') ? el : el.querySelector('input:not([disabled]),select,textarea'); if (f) setTimeout(() => f.focus({ preventScroll: true }), 250); el.classList.add('cl-flash'); setTimeout(() => el.classList.remove('cl-flash'), 1300); }
+    function jumpTo(el) { if (!el) return; el.scrollIntoView({ behavior: 'smooth', block: 'center' }); const f = el.matches('input,select,textarea') ? el : el.querySelector('input.field:not([disabled]),select,textarea') || el.querySelector('input:not([disabled])'); if (f) setTimeout(() => f.focus({ preventScroll: true }), 250); el.classList.add('cl-flash'); setTimeout(() => el.classList.remove('cl-flash'), 1300); }
+
+    /* ----- re-check: read each model's product page again and show what changed (lib/recheck.js does the work) ----- */
+    async function loadPending() { try { const d = await call('GET', '/api/recheck'); ui.rc.results = d.results || {}; renderOverview(); renderRc(); } catch (e) { /* the list just stays empty */ } }
+    async function runRecheck(ids, label) {
+      if (ui.rc.running) return toast('A re-check is already running');
+      ids = ids.filter((id) => { const p = S.products.find((x) => x.id === id); return p && (pageOf(p) || (p.retail || []).length); }); if (!ids.length) return toast('None of these models has a product page or shop link to re-read');
+      Object.assign(ui.rc, { running: true, done: 0, total: ids.length, label, same: 0, failed: [] }); renderOverview(); renderRc(); scrollRc();
+      for (let i = 0; i < ids.length; i += 4) {
+        try {
+          const r = await call('POST', '/api/recheck', { ids: ids.slice(i, i + 4) });
+          (r.results || []).forEach((x) => { if (x.status === 'same') ui.rc.same++; if (x.status === 'failed' || x.status === 'no-link') ui.rc.failed.push(x); });
+          ui.rc.results = r.pending || ui.rc.results; if (r.products) S.products = r.products.map((np) => Object.assign({}, S.products.find((o) => o.id === np.id) || {}, np));
+        } catch (e) { ids.slice(i, i + 4).forEach((id) => { const p = S.products.find((x) => x.id === id); ui.rc.failed.push({ id, model: p.model, brand: p.brand, error: e.message, status: 'failed' }); }); }
+        ui.rc.done = Math.min(ids.length, i + 4); renderRc();
+      }
+      ui.rc.running = false; renderList(); renderRc();
+      const ch = Object.values(ui.rc.results).filter((x) => ids.includes(x.id) && (x.status === 'changed' || x.status === 'new')).length;
+      toast(`Re-check done: ${ui.rc.same} unchanged (verified today)${ch ? `, ${ch} with changes to review` : ''}${ui.rc.failed.length ? `, ${ui.rc.failed.length} could not be read` : ''}`);
+    }
+    const scrollRc = () => { const b = $('#clRc', root); if (b) b.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+    const rcKey = (id, k) => id + '|' + k;
+    function rcChosen() { let n = 0; Object.values(ui.rc.results).forEach((r) => { [...(r.changes || []), ...(r.fills || [])].forEach((x) => { if (!ui.rc.off[rcKey(r.id, x.k)]) n++; }); if (r.image && !ui.rc.off[rcKey(r.id, 'picture')]) n++; }); return n; }
+    function renderRc() {
+      const box = $('#clRc', root); if (!box) return; const rc = ui.rc, list = Object.values(rc.results).filter((r) => (r.status === 'changed' || r.status === 'new') && S.products.some((p) => p.id === r.id));
+      const goneL = Object.values(rc.results).filter((r) => r.status === 'gone' && S.products.some((p) => p.id === r.id && !disc(p)));
+      if (!rc.running && !list.length && !goneL.length && !rc.failed.length && !rc.total) { box.innerHTML = ''; return; }
+      const prog = rc.running ? `<div class="cl-rc-prog"><div class="cl-bar"><i style="width:${rc.total ? Math.round(rc.done / rc.total * 100) : 0}%"></i></div><span>Re-reading product pages: ${rc.done} of ${rc.total}…</span></div>` : rc.total ? `<div class="sub">${esc(rc.label || 'Re-check')}: ${rc.total} checked · ${rc.same} unchanged and marked verified today · ${list.length} with changes · ${rc.failed.length} could not be read</div>` : '';
+      const tbl = (r) => { const rows = [...(r.changes || []).map((x) => ({ ...x, st: 'changed' })), ...(r.fills || []).map((x) => ({ ...x, st: 'new' }))];
+        return `<div class="tbl-wrap"><table class="pm-table cl-table"><thead><tr><th class="cl-ck"></th><th>Field</th><th>Saved</th><th>On the page now</th><th></th></tr></thead><tbody>${rows.map((x) => { const on = !rc.off[rcKey(r.id, x.k)]; return `<tr class="${on ? '' : 'off'}"><td class="cl-ck"><input type="checkbox" data-rck="${esc(rcKey(r.id, x.k))}"${on ? ' checked' : ''} aria-label="Use ${esc(x.label)}"></td><td>${esc(x.label)}</td><td class="muted">${esc(x.cur) || '—'}</td><td class="cl-next">${esc(x.next)}</td><td>${x.st === 'changed' ? '<span class="cl-st-diff">Changed</span>' : '<span class="cl-st-new">New</span>'}</td></tr>`; }).join('')}</tbody></table></div>`; };
+      const cards = list.map((r) => { const p = S.products.find((x) => x.id === r.id); const pon = r.image && !rc.off[rcKey(r.id, 'picture')];
+        return `<div class="cl-rec"><div class="cl-rec-h">${thumb(p, 'cl-mthumb')}<h4>${esc(p.brand)} ${esc(p.model)}</h4><span class="cl-tag">${r.changes && r.changes.length ? pl(r.changes.length, 'change') : 'new details'}</span><a class="muted" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">product page</a><span class="muted">checked ${fmtD(r.at)}</span><button type="button" class="linkbtn" data-rcdismiss="${esc(r.id)}">Dismiss</button></div>${tbl(r)}${r.image ? `<label class="cl-picoffer"><input type="checkbox" data-rck="${esc(rcKey(r.id, 'picture'))}"${pon ? ' checked' : ''}><img src="/api/brand-photos?src=${encodeURIComponent(r.image)}" alt="" loading="lazy"><span>Use the page's picture for this model (it has none yet)</span></label>` : ''}</div>`; }).join('');
+      const fails = rc.failed.length ? `<details class="gaps"${list.length ? '' : ' open'}><summary>${pl(rc.failed.length, 'model')} could not be re-read automatically</summary><ul class="cl-fails">${rc.failed.map((x) => `<li><strong>${esc(x.brand)} ${esc(x.model)}</strong> <span class="muted">${esc(x.status === 'no-link' ? 'no product page link' : x.error || 'could not be read')}</span> <button type="button" class="linkbtn" data-rcai="${esc(x.brand)}">Re-check ${esc(x.brand)} with an AI</button></li>`).join('')}</ul></details>` : '';
+      const n = rcChosen();
+      box.innerHTML = `<div class="panel cl-rcpanel"><div class="cl-sec-h"><span class="cl-num">↻</span><div><h3>Re-check results</h3><div class="sub">What the product pages say now, against what is saved. Nothing changes until you save. Pages can be wrong too: glance down “On the page now”.</div></div>${rc.running ? '' : '<button type="button" class="linkbtn cl-rcclose" id="clRcClose">Close</button>'}</div>${prog}${goneL.length ? `<div class="cl-gone"><strong>Product pages that have gone</strong><span class="muted">Usually the model has been dropped from the range.</span>${goneL.map((r) => `<div class="cl-gone-r">${esc(r.brand)} ${esc(r.model)} <a class="muted" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">old link</a><button type="button" class="imagebtn" data-gone="${esc(r.id)}">Mark as discontinued</button><button type="button" class="linkbtn" data-rcdismiss="${esc(r.id)}">Dismiss</button></div>`).join('')}</div>` : ''}${cards}${fails}
+        ${list.length ? `<div class="cl-savebar"><button type="button" class="primary" id="clRcSave"${n ? '' : ' disabled'}>Save ${pl(n, 'change')}</button><button type="button" class="imagebtn" id="clRcDismissAll">Dismiss all</button></div>` : ''}</div>`;
+    }
+    async function saveRc() {
+      const list = Object.values(ui.rc.results).filter((r) => r.status === 'changed' || r.status === 'new'), prods = [], pics = [], done = [];
+      list.forEach((r) => {
+        const p = S.products.find((x) => x.id === r.id); if (!p) return; done.push(r.id);
+        const o = { id: p.id, brand: p.brand, model: p.model, lastVerified: today() };
+        [...(r.changes || []), ...(r.fills || [])].forEach((x) => { if (!ui.rc.off[rcKey(r.id, x.k)]) Object.assign(o, x.values); });
+        prods.push(o); if (r.image && !ui.rc.off[rcKey(r.id, 'picture')]) pics.push([p.id, r.image]);
+      });
+      const btn = $('#clRcSave', root); if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+      try {
+        if (prods.length) { const r = await call('POST', '/api/products', { products: prods, via: 're-check' }); S.products = r.products; }
+        let pf = 0; for (const [id, src] of pics) { try { await X.autoPicture(id, src); } catch (e) { pf++; } }
+        const q = await call('POST', '/api/recheck', { resolve: done }); ui.rc.results = q.pending || {}; ui.rc.off = {};
+        toast(`${pl(prods.length, 'model')} updated and marked verified${pics.length ? `, ${pics.length - pf} picture${pics.length - pf === 1 ? '' : 's'} saved` : ''}`);
+        ui.rc.total = 0; ui.rc.failed = []; renderList(); renderRc();
+      } catch (e) { toast('Not saved: ' + e.message); renderRc(); }
+    }
+    async function dismissRc(ids) { try { const q = await call('POST', '/api/recheck', { resolve: ids }); ui.rc.results = q.pending || {}; } catch (e) { toast(e.message); } renderOverview(); renderRc(); }
+    async function verifyNow(id) { const p = S.products.find((x) => x.id === id); if (!p) return; try { const r = await call('POST', '/api/products', { product: { id, brand: p.brand, model: p.model, lastVerified: today() }, via: 'collect' }); S.products = r.products; ui.open.add(id); toast(`${p.model} marked as verified today`); renderList(); } catch (e) { toast(e.message); } }
 
     /* ----- bulk AI requests ----- */
     const brandKnown = (b) => { const n = X.brandNow(b), k = []; if (n.units) k.push(n.units.toLocaleString('en-GB') + ' bikes/yr'); if (n.skuCount) k.push(n.skuCount + ' models'); if (n.paSkus != null) k.push(n.paSkus + ' P&A products'); if (n.hq) k.push(n.hq); return k.join(', '); };
@@ -802,10 +933,28 @@
     root.addEventListener('click', async (e) => {
       const t = e.target.closest('button'); if (!t) return;
       if (t.dataset.method) return setMethod(t.dataset.method);
+      if (t.dataset.aimode) { ui.aiMode = t.dataset.aimode; return setMethodBody(); }
+      if (t.id === 'clRcStale') return runRecheck(S.products.filter((p) => stale(p) && pageOf(p)).map((p) => p.id), 'Out-of-date models');
+      if (t.id === 'clRcBrand') return runRecheck(S.products.filter((p) => p.brand === ui.wb && !disc(p)).map((p) => p.id), `Re-check of ${ui.wb}`);
+      if (t.dataset.rcone) return runRecheck([t.dataset.rcone], 'Re-check');
+      if (t.id === 'clRcShow') { ui.rc.total = 0; renderRc(); return scrollRc(); }
+      if (t.id === 'clRcSave') return saveRc();
+      if (t.id === 'clRcDismissAll') return dismissRc(Object.keys(ui.rc.results));
+      if (t.dataset.rcdismiss) return dismissRc([t.dataset.rcdismiss]);
+      if (t.dataset.gone) { const id = t.dataset.gone; await setDisc(id, true); return dismissRc([id]); }
+      if (t.id === 'clRcClose') { ui.rc.total = 0; ui.rc.failed = []; const b = $('#clRc', root); if (b) b.innerHTML = ''; return; }
+      if (t.dataset.verify) return verifyNow(t.dataset.verify);
+      if (t.dataset.disc) return setDisc(t.dataset.disc, t.dataset.on === '1');
+      if (t.dataset.shopdel) { const p = S.products.find((x) => x.id === t.dataset.shopdel); if (!p) return; const r = (p.retail || []).filter((_, i) => i !== +t.dataset.i); return saveRetail(p, r, 'Shop removed'); }
+      if (t.dataset.shopadd) { const id = t.dataset.shopadd, p = S.products.find((x) => x.id === id); if (!p) return; const n = root.querySelector(`[data-shopname="${id}"]`), u = root.querySelector(`[data-shopurl="${id}"]`), name = n.value.trim(), url = u.value.trim();
+        if (!name) { n.focus(); return toast('Give the shop a name'); } if (!/^https:\/\//i.test(url)) { u.focus(); return toast('The link must start with https://'); }
+        if ((p.retail || []).some((x) => x.url === url)) return toast('That link is already on the list');
+        await saveRetail(p, [...(p.retail || []), { shop: name, url }], `${name} added. Select Check now to read its price.`); return; }
+      if (t.dataset.rcai) { if (t.dataset.rcai !== '1' && t.dataset.rcai !== ui.wb) selectBrand(t.dataset.rcai, false); ui.aiMode = 'recheck'; if (ui.method !== 'ai') setMethod('ai'); else setMethodBody(); const mb = $('#clMethod', root); if (mb) mb.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
       if (t.id === 'clRead') return readNow(), scrollToPreview();
       if (t.id === 'clFetch') return fetchPage();
       if (t.id === 'clPick') return $('#clFile', root).click();
-      if (t.id === 'clClear') { ui.text = ''; ui.imp = null; const ta = $('#clText', root); if (ta) ta.value = ''; return renderPreview(); }
+      if (t.id === 'clClear') { ui.text = ''; ui.imp = null; ui.pageImage = ''; const ta = $('#clText', root); if (ta) ta.value = ''; return renderPreview(); }
       if (t.id === 'clApply') return apply();
       if (t.dataset.wb) return selectBrand(t.dataset.wb, false);
       if (t.id === 'clSaveFacts') return saveFacts();
@@ -815,7 +964,7 @@
       if (t.id === 'clNext') { const order = rankBrands().filter((b) => brandProgress(b).gaps && b !== ui.wb), i = order.findIndex((b) => tier(b) > tier(ui.wb) || (tier(b) === tier(ui.wb) && brandProgress(b).gaps <= brandProgress(ui.wb).gaps)); const n = order[i >= 0 ? i : 0]; return n ? selectBrand(n, true) : toast('Every other brand is complete'); }
       if (t.id === 'clAddModel') return addModel();
       if (t.id === 'clShowReq') { const r = $('#clWbBrief', root); r.hidden = !r.hidden; t.textContent = r.hidden ? 'Show the request' : 'Hide the request'; return; }
-      if (t.id === 'clWbCopy') { const v = buildWorkBrief(ui.wb); try { await navigator.clipboard.writeText(v); t.textContent = 'Copied ✓'; setTimeout(() => { t.textContent = 'Copy the request'; }, 1600); toast(`Request for ${ui.wb} copied. Paste it into your AI, then paste its answer in step 2.`); } catch (err) { const r = $('#clWbBrief', root); r.hidden = false; r.select(); toast('Press Ctrl+C to copy the request'); } return; }
+      if (t.id === 'clWbCopy') { const v = ui.aiMode === 'recheck' ? buildRecheckBrief(ui.wb) : buildWorkBrief(ui.wb); try { await navigator.clipboard.writeText(v); t.textContent = 'Copied ✓'; setTimeout(() => { t.textContent = 'Copy the request'; }, 1600); toast(`Request for ${ui.wb} copied. Paste it into your AI, then paste its answer in step 2.`); } catch (err) { const r = $('#clWbBrief', root); r.hidden = false; r.select(); toast('Press Ctrl+C to copy the request'); } return; }
       if (t.id === 'clTplM') return X.exportCsv();
       if (t.id === 'clTplB') return X.exportBrandsCsv();
       if (t.id === 'clCopy') { const v = $('#clBrief', root).value; try { await navigator.clipboard.writeText(v); toast('Request copied'); } catch (err) { $('#clBrief', root).select(); toast('Press Ctrl+C to copy'); } return; }
@@ -829,6 +978,9 @@
       if (t.id === 'clModelSel') { ui.modelSel = t.value; const n = $('#clModel', root); if (n) { n.hidden = t.value !== '__new'; if (!n.hidden) n.focus(); } if (ui.imp && ui.method === 'paste') readNow(); return; }
       if (t.id === 'clAllFacts') { ui.allFacts = t.checked; const f = $('#clFacts', root); f.innerHTML = factsForm(ui.wb); return; }
       if (t.dataset.bna != null) { const row = t.closest('.bf'); if (row) row.querySelectorAll('input.field,input[data-boffer]').forEach((i) => { i.disabled = t.checked; }); return; }
+      if (t.dataset.discr != null) { const rec = ui.imp.recs[+t.dataset.discr]; rec.discOn = t.checked; return updateSave(); }
+      if (t.id === 'clUsePic') { ui.usePic = t.checked; return updateSave(); }
+      if (t.dataset.rck) { if (t.checked) delete ui.rc.off[t.dataset.rck]; else ui.rc.off[t.dataset.rck] = 1; t.closest('tr, label').classList.toggle('off', !t.checked); const b = $('#clRcSave', root), n = rcChosen(); if (b) { b.disabled = !n; b.textContent = `Save ${pl(n, 'change')}`; } return; }
       if (t.dataset.r != null && t.dataset.k) { const rec = ui.imp.recs[+t.dataset.r], row = rec.rows.find((x) => x.k === t.dataset.k); if (row) row.on = t.checked; t.closest('tr').classList.toggle('off', !t.checked); return updateSave(); }
       if (t.dataset.br != null && t.dataset.k) { const rec = ui.imp.brandRecs[+t.dataset.br], row = rec.rows.find((x) => x.k === t.dataset.k); if (row) row.on = t.checked; t.closest('tr').classList.toggle('off', !t.checked); if (row && t.checked && (row.k === 'units' || row.k === 'revenueGBPm')) { const y = rec.rows.find((x) => x.k === 'figuresYear'); if (y && y.status !== 'same') { y.on = true; const cb = root.querySelector(`input[data-br="${t.dataset.br}"][data-k="figuresYear"]`); if (cb) { cb.checked = true; cb.closest('tr').classList.remove('off'); } } } return updateSave(); }
       if (t.id === 'clScope') { ui.scope = t.value; ui.bb = ''; ui.page = 0; return renderBrief(); }
@@ -838,7 +990,7 @@
       if (t.dataset.na) return setNa(t.dataset.id, t.dataset.na, t.checked);
       if (t.dataset.k && t.dataset.id && t.classList.contains('field') && t.value.trim()) return saveField(t.dataset.id, t.dataset.k, t.value, t);
     });
-    const updateSave = () => { const b = $('#clApply', root), n = nChosen(); if (b) { b.disabled = !n; b.textContent = `Save ${pl(n, 'value')}`; } };
+    const updateSave = () => { const b = $('#clApply', root), n = nChosen(); if (b) { b.disabled = !n && !nConfirm() && !(ui.pageImage && ui.usePic); b.textContent = saveLabel(n); } };
     root.addEventListener('input', (e) => {
       const t = e.target;
       // An AI answer is checked as soon as it is pasted (a short pause after typing stops too).
@@ -854,7 +1006,7 @@
       if (t.dataset && t.dataset.k && t.dataset.id && t.classList.contains('field')) { e.preventDefault(); t.blur(); }
     });
 
-    RENDER.collect = () => { if (!root.dataset.ready) skeleton(); if (!ui.wb || !C.brands.includes(ui.wb)) ui.wb = rankBrands()[0] || ''; renderList(); renderBrief(); };
+    RENDER.collect = () => { const first = !root.dataset.ready; if (first) skeleton(); if (!ui.wb || !C.brands.includes(ui.wb)) ui.wb = rankBrands()[0] || ''; renderList(); renderBrief(); if (first) loadPending(); };
     X.collectOpen = (brand, model) => { if (brand && C.brands.includes(brand)) { ui.wb = brand; ui.imp = null; } if (model) { ui.modelSel = model; ui.method = 'paste'; } go('collect'); };
   };
   return api;

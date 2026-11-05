@@ -1,6 +1,7 @@
 import {authorised} from '../../../lib/auth.js';
 import {paths,readJson,writeJson,getSources} from '../../../lib/store.js';
 import {fetchPageImage,isPublicHttpUrl} from '../../../lib/images.js';
+import {fetchSpecs} from '../../../lib/extract.js';
 export const maxDuration=30;
 const slug=b=>String(b).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'brand';
 const photoPath=b=>`ci/photos/${slug(b)}.json`;
@@ -10,6 +11,18 @@ const IMG=/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/;
 export async function GET(req){
   if(!authorised(req))return new Response('Unauthorized',{status:401});
   const q=new URL(req.url).searchParams,brand=q.get('brand')||'',model=q.get('model')||'';
+  // ?src=https://… passes a picture from another site through this one, so the page can crop it in the picture editor (browsers block that across sites). Pictures only, 10 MB at most.
+  const src=q.get('src');
+  if(src){
+    if(!/^https:\/\//i.test(src)||!isPublicHttpUrl(src))return new Response('That picture link is not allowed',{status:400});
+    try{
+      const r=await fetch(src,{headers:{'user-agent':'Mozilla/5.0 (compatible; BromptonEnemies/3.12)',accept:'image/*'},signal:AbortSignal.timeout(10000),redirect:'follow'});
+      const ct=(r.headers.get('content-type')||'').split(';')[0].trim();
+      if(!r.ok||!/^image\/(jpeg|png|webp|avif|gif)$/i.test(ct)||(r.url&&!isPublicHttpUrl(r.url)))return new Response('No picture at that link',{status:404});
+      const buf=Buffer.from(await r.arrayBuffer());if(buf.length>10e6)return new Response('Picture too large',{status:413});
+      return new Response(buf,{headers:{'content-type':ct,'cache-control':'private, max-age=600'}});
+    }catch(e){return new Response('Could not fetch the picture',{status:502})}
+  }
   const d=await readJson(model?modelPath(model):photoPath(brand),null),m=d&&IMG.exec(d.data||'');
   if(!m)return new Response('No picture',{status:404});
   return new Response(Buffer.from(m[2],'base64'),{headers:{'content-type':m[1],'cache-control':'private, max-age=300'}});
@@ -20,6 +33,15 @@ export async function POST(req){
   if(!authorised(req))return Response.json({error:'Unauthorized'},{status:401});
   const b=await req.json().catch(()=>({}));
   // A picture for one model (SKU): {modelId, imageData}. Shown on the Product Comparison cards instead of the brand picture.
+  // {modelId, findOnPage:true}: look for the model's picture on its product page (product data image, then preview image). Returns the link; the page then crops and saves it.
+  if(b.modelId&&b.findOnPage){
+    const pr=await readJson(paths.products,{updatedAt:null,products:[]}),p=(pr.products||[]).find(x=>x.id===String(b.modelId));
+    if(!p)return Response.json({error:'Model not found'},{status:404});
+    const page=String(b.url||p.url||p.sourceUrl||'');
+    if(!/^https:\/\//i.test(page))return Response.json({error:'This model has no product page link yet. Add one (Edit > Product page link), or upload a picture.'},{status:404});
+    try{const d=await fetchSpecs(page);if(!d.image)return Response.json({error:`No picture found on ${new URL(page).hostname}`},{status:404});return Response.json({image:d.image,page})}
+    catch(e){return Response.json({error:'Could not read the product page: '+e.message},{status:502})}
+  }
   if(b.modelId){
     const v=String(b.imageData||'');
     if(!IMG.test(v))return Response.json({error:'The picture must be a PNG, JPEG or WebP'},{status:400});

@@ -10,6 +10,10 @@
     {
       "path": "/api/digest?send=1",
       "schedule": "0 7 * * 1"
+    },
+    {
+      "path": "/api/recheck",
+      "schedule": "0 5 * * 1"
     }
   ]
 }

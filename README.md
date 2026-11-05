@@ -1,11 +1,13 @@
-# Brompton Enemies v3.11.0
+# Brompton Enemies v3.13.0
 
 Next.js app for Vercel: a password-protected tracker (news scanner, social watch, insights, product matrix, competitor profiles, weekly digest) with a scanner admin at `/admin`.
 
 ## Deploy to Vercel
 1. Replace the repository contents with this package and push.
 2. Environment variables: `SITE_PASSWORD`, `SESSION_SECRET` (long random), `CRON_SECRET` (different long random). Connect a Vercel Blob store (private stores work).
-3. Optional digest: `SLACK_WEBHOOK_URL`, or `RESEND_API_KEY` + `DIGEST_TO` (+ `DIGEST_FROM`). It sends Mondays 07:00 UTC; use **Send now** on the Watchlist to test.
+3. Optional, personal sign-ins: `SITE_USERS` = `Jiri:password1, Anna:password2` (each person signs in with their own name and password; the shared `SITE_PASSWORD` then stops working). Without it, people sign in with the shared password and type their name, which is shown on their changes.
+4. Optional email alerts (market changes, at most once a day): `RESEND_API_KEY` + `ALERTS_TO` (falls back to `DIGEST_TO`), optional `SITE_URL` for the link in the email.
+5. Optional digest: `SLACK_WEBHOOK_URL`, or `RESEND_API_KEY` + `DIGEST_TO` (+ `DIGEST_FROM`). It sends Mondays 07:00 UTC; use **Send now** on the Watchlist to test.
 4. Redeploy (without build cache) and check the login screen appears first.
 
 Local development: `CI_LOCAL_STORE=./.data npm run dev` keeps data on disk instead of Blob. Tests: `npm test`.
@@ -13,6 +15,20 @@ Local development: `CI_LOCAL_STORE=./.data npm run dev` keeps data on disk inste
 ## What is in it
 - Sections run across the top: **News & updates** (opening page), **Insights** (watchlist, momentum, portfolio and volumes, price chart, regions, activity, data gaps), **Social watch**, **Product Comparison** (compare up to 6), **Competitors** (profiles, company panel, where-they-sell map, pictures), **Sources** (source manager and scanner status).
 - The scanner reads 129+ sources daily (and on **Run scan**); add a website or feed under Sources > Add source.
+
+## v3.13.0
+1. **Price history.** Every list price saved (by hand, Collect data or a re-check) and every street price read is kept with its date. **Insights › Charts › Price history** draws each model's price over time with street prices as dots, and lists every change (was, now, %, who or what found it).
+2. **Email alerts.** List and street price changes, new and discontinued models, product pages that have gone, and spec changes found by re-checks are emailed at most once a day (after the morning scan) and after the Monday re-check. Set `RESEND_API_KEY` and `ALERTS_TO`. Status, the waiting alerts and **Send now** are in **History › Email alerts**.
+3. **Discontinued models.** **Mark as discontinued** (Collect data, or when a re-check finds the product page has gone, or when an AI re-check says so). Discontinued models stay saved with their history, are tagged, and are left out of gaps, re-checks, charts and counts; **Include discontinued models** on Charts brings them back. **Back on sale** undoes it.
+4. **Street prices.** Add shop links to a model in Collect data (Evans, Halfords, Tredz and so on). Their prices are read every Monday (or **Check now**), shown against the list price, kept in the price history and alerted on when they move. The battle card shows the lowest one.
+5. **Named sign-ins, edit history and Undo.** Sign-in asks for your name (or uses personal passwords with `SITE_USERS`), and your initials show top right. **History** lists every change to models and brand profiles: who, when, how (by hand, Collect data, re-check, AI re-check, undo) and the values before and after. **Undo** puts the old values back, warns if they have been changed again since, and is itself recorded.
+6. **Backups.** A backup of everything entered (models, brands, sources, tags, history, prices, alerts) is made every Monday; the last 12 are kept. **History › Backups**: make one now, download any of them or the current data, or restore one (a safety backup is made first).
+7. **Battle card.** **Product Comparison › Battle card** (or from Head-to-head): one printable A4 page for our model against its three closest-priced rivals (changeable), with the specs side by side and the best in each row marked, **Where we win** and **Objections to expect** worked out from the figures, and what we know about each rival: threat level, strengths and weak spots, price moves and news from the last 90 days.
+8. Fixes: the re-check job could not run on its own in v3.12 (the sign-in check blocked it); the weekly job now also reads street prices. Shorter menu labels so all sections fit.
+
+## v3.12.0
+1. **A picture per model.** Every model can have its own picture (a C Line and a G Line look different). Set it in Collect data (open a model: **Upload a picture**, or **Use the product page's picture**, which finds the picture on the model's page and opens it in the crop editor), from the thumbnails in a competitor's profile, or on the Product Comparison. Model pictures now show on the competitor cards (a strip of the brand's models), in profiles, in Head-to-head, and stand in for the brand picture when a brand has none. Reading a product page in Collect data also offers the page's picture.
+2. **Re-check (refresh and validate).** Every model shows when its specs were last verified; anything older than 90 days is marked out of date. **Re-check** re-reads the product pages (one model, one brand, or every out-of-date model) and lists what changed against what is saved: changed and new values are ticked, nothing is saved until you press Save, and unchanged models are marked verified today. For company facts and models without a page link, **Ask an AI › Re-check what we have** sends everything saved with its date and asks the AI to confirm or correct each value; changes are ticked and everything confirmed is marked verified. **Mark as verified today** records a check you did yourself. A monthly job (1st of the month, 05:00 UTC) re-checks out-of-date models on its own and leaves any changes waiting for review in Collect data. Logic in `lib/recheck.js`, API `/api/recheck`.
 
 ## v3.11.0
 1. **Collect data, rebuilt.** One brand at a time in three steps on one card. **1. What is missing**: the empty company facts and every model with its number of empty specs; select one to jump straight to its box. **2. Get the details**, four ways: **Read a product page** (paste a link; the price, weight and specification table are read from the page by a script, `/api/extract`), **Ask an AI** (copy the request, or open ChatGPT, Claude or Perplexity with it already typed in; the answer is checked the moment you paste it), **Paste text or a file**, or **Type it in** (only the empty fields). **3. Check and save**: every value is checked; new values are ticked, replacements are not, and anything that could not be used is listed with the reason. A € or $ price given as the £ price is now kept as the € or $ price instead of being thrown away.
