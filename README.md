@@ -1,4 +1,4 @@
-# Brompton Enemies v3.10.0
+# Brompton Enemies v3.11.0
 
 Next.js app for Vercel: a password-protected tracker (news scanner, social watch, insights, product matrix, competitor profiles, weekly digest) with a scanner admin at `/admin`.
 
@@ -11,8 +11,17 @@ Next.js app for Vercel: a password-protected tracker (news scanner, social watch
 Local development: `CI_LOCAL_STORE=./.data npm run dev` keeps data on disk instead of Blob. Tests: `npm test`.
 
 ## What is in it
-- **News & updates** (opening page), **Insights** (watchlist, momentum, portfolio and volumes, price chart, regions, activity, data gaps), **Social watch**, **Product Comparison** (compare up to 6), **Competitors** (profiles, company panel, where-they-sell map, pictures), **Sources** (source manager and scanner status).
+- Sections run across the top: **News & updates** (opening page), **Insights** (watchlist, momentum, portfolio and volumes, price chart, regions, activity, data gaps), **Social watch**, **Product Comparison** (compare up to 6), **Competitors** (profiles, company panel, where-they-sell map, pictures), **Sources** (source manager and scanner status).
 - The scanner reads 129+ sources daily (and on **Run scan**); add a website or feed under Sources > Add source.
+
+## v3.11.0
+1. **Collect data, rebuilt.** One brand at a time in three steps on one card. **1. What is missing**: the empty company facts and every model with its number of empty specs; select one to jump straight to its box. **2. Get the details**, four ways: **Read a product page** (paste a link; the price, weight and specification table are read from the page by a script, `/api/extract`), **Ask an AI** (copy the request, or open ChatGPT, Claude or Perplexity with it already typed in; the answer is checked the moment you paste it), **Paste text or a file**, or **Type it in** (only the empty fields). **3. Check and save**: every value is checked; new values are ticked, replacements are not, and anything that could not be used is listed with the reason. A € or $ price given as the £ price is now kept as the € or $ price instead of being thrown away.
+2. **Field sizes.** Number boxes are short, text boxes medium, and filters size to their content instead of stretching across the page. Typed brand facts are checked as you leave the box, with the reason shown underneath.
+3. **Markets map.** The browser's own tooltip no longer sits on top of the hover panel. Two colourings: **Number of competitors** (a warm scale, brighter = more) and **Us vs them** (orange: competitors only, green: both, blue: only us). Zoom to Europe, the Americas or Asia Pacific. Colours are checked for colour-blind separation and contrast.
+4. **Charts.** Each competitor brand has its own colour (Brompton stays #002fa7), hover shows a clear label, and the price-vs-spec charts no longer join a brand's models with a line. New at the top of Charts: **where our model stands** (how many competitor models are cheaper, lighter or fold smaller; price rivals within ±15%), measured against any model you pick. New view: **Head-to-head**, every competitor model against ours on price, weight and folded size, blue where we are ahead and orange where they are, closest price first.
+5. **Duplicate check in News.** The same story from several feeds (Google News, the publisher, trade sites) shows once, with "Also reported by". Exact repeats are not stored at all; similar headlines are folded and can be shown with **Show repeats** or split with **Not a duplicate**. The weekly digest counts each story once. Logic in `lib/dedupe.js`.
+6. **Menu at the top.** The sections run left to right in the header; the page uses the full width.
+7. **Polish.** No sideways scroll (the scan ring was 300px wide while hidden), no scrollbar shift between pages, Insights no longer redraws every minute unless the news changed, the comparison header sticks below the menu, the toast fades, "How to read this" stays as you left it, tighter tiles on phones.
 
 ## v3.10.0
 **Collect data is now one guided page.** Pick a brand (the page suggests where to start: our brand, then your watchlist, then the biggest gaps). Then either **A. let an AI find it** (copy one ready-made request for that brand, paste it into an AI, paste the answer back, check the preview, save) or **B. type what you know** (only the missing brand facts and model specs are shown; tick *Not published* when a company does not say, so it stops nagging). Brand facts and models are handled together, models can be added on the spot, and **Next brand with gaps** keeps you moving. Spreadsheets and bulk AI requests for many brands at once are under "Many brands at once".

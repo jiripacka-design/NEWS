@@ -33,7 +33,8 @@ test('units: lb, mm, miles, volts x amp-hours, wrong currency',()=>{
   assert.equal(K.coerce('rangeKm','20-45 miles').set.rangeKm,72);
   assert.equal(K.coerce('batteryWh','36 V 8.1 Ah').set.batteryWh,292);
   assert.equal(K.coerce('priceGBP','£1,809.00').set.priceGBP,1809);
-  assert.ok(K.coerce('priceGBP','$2,500').why);
+  // v3.11: a $ or € price given as the £ price is kept, in the $ or € field, instead of being rejected
+  assert.deepEqual(K.coerce('priceGBP','$2,500').set,{priceUSD:2500});assert.deepEqual(K.coerce('priceGBP','EUR 1999').set,{priceEUR:1999});assert.ok(!K.coerce('priceGBP','$2,500').set.priceGBP);
   assert.ok(K.coerce('weightKg','n/a').skip);assert.ok(K.coerce('tyres',null).skip);
   assert.ok(K.coerce('sourceUrl','http://x.com').why);
 });

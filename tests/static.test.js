@@ -87,3 +87,13 @@ test('Collect data is one guided workspace: pick a brand, ask an AI or type it i
   for(const k of ['renderOverview','renderWork','buildWorkBrief','factsForm','saveFacts','addModel','clWbCopy','clNext','Where to start','Not published','Many brands at once'])assert.ok(c.includes(k),k);
   assert.ok(!c.includes('<h3>1. Import</h3>'),'the old import-first layout is gone');
 });
+
+test('v3.11: menu at the top, map hover without browser tooltips, page reader and duplicate check wired in',()=>{
+  const h=fs.readFileSync('public/tracker.html','utf8'),p=fs.readFileSync('public/pm.js','utf8'),c=fs.readFileSync('public/collect.js','utf8');
+  assert.match(h,/<header class="top">[^]*?<nav class="side"[^]*?<\/nav>[^]*?<\/header>/,'the section menu sits in the header');
+  const mk=p.slice(p.indexOf('function insMarkets()'),p.indexOf('function insGaps()'));assert.ok(!mk.includes('<title>'),'no native tooltips on the markets map');
+  for(const k of ['data-mkmode','data-mkzoom','h2hView','positioning()','data-tip','dupLine','dupToggle','data-notdup'])assert.ok(p.includes(k),k);
+  for(const k of ['/api/extract','What is missing','Get the details','Check and save','checkFact','data-method'])assert.ok(c.includes(k),k);
+  assert.match(fs.readFileSync('lib/scanner.js','utf8'),/isRepeat\(/);assert.match(fs.readFileSync('app/api/news/route.js','utf8'),/groupStories/);
+  assert.ok(h.includes('id="runRing" width="0" height="0"'),'the hidden scan ring takes no room');
+});

@@ -8,7 +8,7 @@
   if (!C || !E) { console.error('pm.js: tracker core or events.js missing'); return; }
   const { $, $$, esc, toast } = C;
   const REG = ['US', 'EMEA', 'APAC', 'CHINA'], CATS = ['Folding bike', 'Folding e-bike', 'E-bike', 'Cargo e-bike'], THR = ['High', 'Medium', 'Low'];
-  const S = { brands: {}, products: [], win: 30, cmp: { us: '', others: [] }, sort: { k: 'brand', d: 1 }, q: '', profile: '', digest: null, removed: [], arch: 'hide', showEmpty: false, diff: false, wide: true, insTab: 'markets', pfSort: { k: 'u', d: -1 }, cview: 'ladder', ladSort: 'cheap', rankBy: 'weightKg', cscale: 'log', chHide: new Set(), chFind: '', mkSel: 'all', mkC: '', mkAbsent: false, pickSlot: 0, pickQ: '' };
+  const S = { brands: {}, products: [], win: 30, cmp: { us: '', others: [] }, sort: { k: 'brand', d: 1 }, q: '', profile: '', digest: null, removed: [], arch: 'hide', showEmpty: false, diff: false, wide: true, insTab: 'markets', pfSort: { k: 'u', d: -1 }, cview: 'ladder', ladSort: 'cheap', rankBy: 'weightKg', cscale: 'log', chHide: new Set(), chFind: '', mkSel: 'all', mkMode: 'count', mkC: '', mkAbsent: false, pickSlot: 0, pickQ: '' };
   const slug = (t) => String(t).toLowerCase().replace(/[^a-z]+/g, '-').replace(/^-|-$/g, '');
   const sv = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } };
   const ld = (k, f) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? f : v; } catch (e) { return f; } };
@@ -79,9 +79,21 @@
   // Feed filter: archived items are hidden unless "Show archived" is on; items of competitors you removed are always hidden.
   const passNews = (n, ignoreArchive) => {
     if (S.removed.includes(n.brand)) return false;
+    if (n.dupOf && !S.showDups) return false;
     if (ignoreArchive) return true;
     return S.arch === 'show' ? true : S.arch === 'only' ? !!n.archived : !n.archived;
   };
+  /* Duplicate stories (grouped on the server by lib/dedupe.js). Article fields are already escaped by mapLive. */
+  function dupLine(n) {
+    if (n.dupOf) return `<div class="dupline is-dup"><span>Repeat of “${n.dupTitle || 'another story'}”</span><button type="button" class="linkbtn" data-notdup="${esc(n.id)}" title="Show this as its own story from now on">Not a duplicate</button></div>`;
+    const d = (n.dups || []).filter((x) => !x.archived); if (!d.length) return '';
+    const srcs = [...new Map(d.map((x) => [x.source, x])).values()];
+    return `<div class="dupline"><span>Also reported by</span><span>${srcs.slice(0, 4).map((x) => x.url && x.url !== '#' ? `<a href="${x.url}" target="_blank" rel="noopener noreferrer">${x.source}</a>` : x.source).join(', ')}${srcs.length > 4 ? ` and ${srcs.length - 4} more` : ''}</span></div>`;
+  }
+  function dupMeta() {
+    const n = C.news.filter((x) => x.dupOf && !x.archived).length; if (!n) return '';
+    return ` <span class="dupmeta">· ${n} repeated stor${n === 1 ? 'y' : 'ies'} ${S.showDups ? 'shown' : 'folded in'} <button type="button" class="linkbtn" id="dupToggle">${S.showDups ? 'Hide repeats' : 'Show repeats'}</button></span>`;
+  }
   const tracked = () => new Set(C.brands);
   const feedItems = () => { const t = tracked(); return C.news.filter((n) => t.has(n.brand) && !n.archived); };
   const badges = (n) => (isUs(n) ? '<span class="pm-us" title="Our brand">US</span>' : '') + (bm(n).watch ? '<span class="pm-watch" title="On the watchlist">★</span>' : '') + (bm(n).threat ? `<span class="thr t-${bm(n).threat.toLowerCase()}">${bm(n).threat}</span>` : '');
@@ -116,7 +128,7 @@
   /* =====================  INSIGHTS (watchlist + insights on one page)  ===================== */
   const TABS = [['markets', 'Markets'], ['overview', 'Overview'], ['portfolio', 'Portfolio and volumes'], ['chart', 'Charts'], ['gaps', 'Data gaps']];
   // Short plain-English explanations, shown above each table so every number can be read without a manual.
-  const gloss = (rows) => `<details class="howto" open><summary>How to read this</summary><dl>${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl></details>`;
+  const gloss = (rows) => `<details class="howto"${S.howOpen ? ' open' : ''}><summary>How to read this</summary><dl>${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl></details>`;
   function wcard(b, mom) {
     const m = mom[b] || { cur: 0, prev: 0, spark: new Array(12).fill(0), label: 'No activity' };
     const ps = S.products.filter((p) => p.brand === b), prices = ps.map((p) => priceOf(p).v).filter((x) => x != null);
@@ -213,16 +225,22 @@
     const others = C.brands.filter((b) => !isUs(b));
     return S.mkSel === 'all' ? others : S.mkSel === 'watch' ? others.filter((b) => bm(b).watch) : others.filter((b) => b === S.mkSel);
   }
+  // Zoom presets in map units (the map is 960 x 481); each keeps the 2:1 shape so the page does not change height when you zoom.
+  const MK_ZOOM = [['world', 'World', ''], ['europe', 'Europe', '405 95 230 115'], ['americas', 'Americas', '60 70 400 200'], ['apac', 'Asia Pacific', '640 150 300 150']];
   function insMarkets() {
-    if (!window.CIWorld) { withWorld(() => { if (S.insTab === 'markets') renderInsights(); }); return '<div class="panel"><div class="source-empty">Loading the map…</div></div>'; }
+    if (!window.CIWorld) { withWorld(() => { if (S.insTab === 'markets') renderInsights(); }); return '<div class="panel mk-loading"><div class="source-empty">Loading the map…</div></div>'; }
     const W = window.CIWorld, us = usName(), pick = mkBrands(), mine = placeCountries(countriesOf(us)), single = pick.length === 1;
     const by = new Map(); pick.forEach((b) => { placeCountries(countriesOf(b)).hit.forEach((t, key) => { if (!by.has(key)) by.set(key, { t, brands: [] }); by.get(key).brands.push(b); }); });
     const keys = new Set([...by.keys(), ...mine.hit.keys()]), nameOf = (key) => (by.get(key) || { t: mine.hit.get(key) }).t.n;
-    const klass = (key) => { const n = (by.get(key) || { brands: [] }).brands.length; if (!n) return 'wm-us'; const c = single ? 2 : n >= 8 ? 4 : n >= 4 ? 3 : n >= 2 ? 2 : 1; return `wm-n${c}${mine.hit.has(key) ? ' wm-ov' : ''}`; };
+    // Two ways to colour the map. "count": a warm ramp, brighter where more competitors sell (blue where only we sell).
+    // "gap": three colours, so the white space jumps out: competitors only (orange), both of us (green), only us (blue).
+    const mode = single ? 'gap' : S.mkMode;
+    const klass = (key) => { const n = (by.get(key) || { brands: [] }).brands.length, ours = mine.hit.has(key); if (!n) return 'wm-us'; if (mode === 'gap') return ours ? 'wm-g-both' : 'wm-g-them'; return 'wm-d' + (n >= 8 ? 4 : n >= 4 ? 3 : n >= 2 ? 2 : 1); };
     const shape = (key) => {
       const e = by.get(key) || { t: mine.hit.get(key), brands: [] }, t = e.t, ours = mine.hit.has(key), who = e.brands;
-      const tip = `${t.n}: ${who.length ? `${who.length} competitor${who.length === 1 ? '' : 's'} (${who.slice(0, 8).join(', ')}${who.length > 8 ? ', …' : ''})` : 'no competitor listed'}. ${ours ? 'We sell here.' : 'We do not sell here.'}`, c = klass(key) + (S.mkC === key ? ' wm-sel' : '');
-      return t.k === 'o' ? `<path class="${c}" data-ctry="${key}" d="${W.d[t.i]}"><title>${esc(tip)}</title></path>` : `<circle class="${c}" data-ctry="${key}" cx="${W.dots[t.i][1]}" cy="${W.dots[t.i][2]}" r="4.2"><title>${esc(tip)}</title></circle>`;
+      // No SVG title element here: the browser's own tooltip would sit on top of the hover panel. The panel (and aria-label) carry the details.
+      const tip = `${t.n}: ${who.length ? `${who.length} competitor${who.length === 1 ? '' : 's'}` : 'no competitor listed'}. ${ours ? 'We sell here.' : 'We do not sell here.'}`, c = klass(key) + (S.mkC === key ? ' wm-sel' : '');
+      return t.k === 'o' ? `<path class="${c}" data-ctry="${key}" d="${W.d[t.i]}" aria-label="${esc(tip)}"/>` : `<circle class="${c}" data-ctry="${key}" cx="${W.dots[t.i][1]}" cy="${W.dots[t.i][2]}" r="4.2" aria-label="${esc(tip)}"/>`;
     };
     S.mkInfo = {}; keys.forEach((k) => { const e = by.get(k) || { t: mine.hit.get(k), brands: [] }; S.mkInfo[k] = { n: e.t.n, brands: e.brands, ours: mine.hit.has(k), single }; });
     const both = [...by.keys()].filter((k) => mine.hit.has(k)).length, theirsOnly = by.size - both, oursOnly = [...mine.hit.keys()].filter((k) => !by.has(k)).length;
@@ -231,10 +249,8 @@
     const sel = S.mkC && keys.has(S.mkC) ? S.mkC : '', se = sel ? (by.get(sel) || { t: mine.hit.get(sel), brands: [] }) : null;
     const opts = `<option value="all"${S.mkSel === 'all' ? ' selected' : ''}>All competitors (${C.brands.filter((b) => !isUs(b)).length})</option><option value="watch"${S.mkSel === 'watch' ? ' selected' : ''}>Watchlist only (${C.brands.filter((b) => bm(b).watch && !isUs(b)).length})</option>${withData.sort((a, b) => a.localeCompare(b)).map((b) => `<option${S.mkSel === b ? ' selected' : ''}>${esc(b)}</option>`).join('')}`;
     return `<div class="metrics"><div class="metric">Countries with a competitor<strong>${by.size}</strong></div><div class="metric">Where we both sell<strong>${both}</strong></div><div class="metric">Competitors only, we are absent<strong>${theirsOnly}</strong></div><div class="metric">Only we sell here<strong>${oursOnly}</strong></div></div>
-      <div class="panel"><div class="chart-head"><div><h3>Where they sell</h3><div class="sub">${single ? esc(pick[0]) : `${pick.length} competitor${pick.length === 1 ? '' : 's'}`} against ${esc(us)}. Hover a country to see which brands sell there; select it to keep the details below.</div></div><div class="mk-ctl"><label class="cmp-bar">Show<select class="field" id="mkSel">${opts}</select></label></div></div>
-        ${gloss([['Brighter', single ? 'A country where the selected competitor sells.' : 'More competitors sell there: grey is 1, then lighter for 2 to 3, 4 to 7, and white for 8 or more.'], ['Blue', 'Only we sell there. Blue outline: we sell there too.'], ['Source', 'The countries listed on each profile under Regions. Countries are only as complete as those lists.']])}
-        <div class="mk-wrap" id="mkWrap"><svg class="worldmap mk" viewBox="0 0 ${W.w} ${W.h}" role="img" aria-label="Flat world map of where ${esc(us)} and its competitors sell. Hover a country to see who sells there."><path class="wm-base" d="${W.d.join('')}"/>${[...keys].map(shape).join('')}</svg><div class="mk-tip" id="mkTip" hidden></div></div>
-        <div class="wm-legend"><span><i class="sw n1"></i>1 competitor</span>${single ? '' : '<span><i class="sw n2"></i>2 to 3</span><span><i class="sw n3"></i>4 to 7</span><span><i class="sw n4"></i>8 or more</span>'}<span><i class="sw us"></i>Only ${esc(us)}</span><span><i class="sw ov"></i>${esc(us)} also sells here</span><span class="muted">${withData.length} of ${C.brands.length - 1} competitors have countries listed</span></div>
+      <div class="panel"><div class="chart-head"><div><h3>Where they sell</h3><div class="sub">${single ? esc(pick[0]) : `${pick.length} competitor${pick.length === 1 ? '' : 's'}`} against ${esc(us)}. Hover a country to see which brands sell there; select it to keep the details below.</div></div><div class="mk-ctl"><label class="cmp-bar">Show<select class="field" id="mkSel">${opts}</select></label>${single ? '' : `<div class="cmp-bar ctl"><span>Colour by</span><div class="seg" role="group" aria-label="Colour the map by"><button type="button" data-mkmode="count" class="${mode === 'count' ? 'on' : ''}" aria-pressed="${mode === 'count'}">Number of competitors</button><button type="button" data-mkmode="gap" class="${mode === 'gap' ? 'on' : ''}" aria-pressed="${mode === 'gap'}">Us vs them</button></div></div>`}</div></div>
+<div class="wm-legend">${mode === 'gap' ? `<span><i class="sw g-them"></i>${single ? esc(pick[0]) : 'Competitors'} only: ${esc(us)} absent</span><span><i class="sw g-both"></i>Both sell here</span>` : '<span class="wm-scale"><span>Competitors selling there</span><i class="sw d1"></i>1<i class="sw d2"></i>2–3<i class="sw d3"></i>4–7<i class="sw d4"></i>8+</span>'}<span><i class="sw us"></i>Only ${esc(us)}</span><span><i class="sw none"></i>No data</span><span class="muted wm-src">Countries as listed on each profile under Regions · ${withData.length} of ${C.brands.length - 1} competitors have them</span></div><div class="mk-zoom seg" role="group" aria-label="Zoom the map">${MK_ZOOM.map(([k, l]) => `<button type="button" data-mkzoom="${k}" class="${(S.mkZoom || 'world') === k ? 'on' : ''}" aria-pressed="${(S.mkZoom || 'world') === k}">${l}</button>`).join('')}</div><div class="mk-wrap" id="mkWrap"><svg class="worldmap mk" viewBox="${(MK_ZOOM.find((z) => z[0] === S.mkZoom) || MK_ZOOM[0])[2] || `0 0 ${W.w} ${W.h}`}" role="img" aria-label="Flat world map of where ${esc(us)} and its competitors sell. Hover a country to see who sells there."><path class="wm-base" d="${W.d.join('')}"/>${[...keys].map(shape).join('')}</svg><div class="mk-tip" id="mkTip" hidden></div></div>
         ${se ? `<div class="mk-box"><b>${esc(se.t.n)}</b>: ${se.brands.length ? `${se.brands.length} competitor${se.brands.length === 1 ? '' : 's'} sell here.` : 'no competitor listed here.'} ${mine.hit.has(sel) ? `<b>${esc(us)} sells here too.</b>` : `<b>${esc(us)} does not sell here.</b>`}<div class="ctags">${mine.hit.has(sel) ? `<span class="us">${esc(us)}</span>` : ''}${se.brands.map((b) => `<span>${esc(b)}</span>`).join('')}</div></div>` : ''}</div>
       <div class="panel"><div class="chart-head"><div><h3>Countries with the most competitors</h3><div class="sub">The top 15 for the selection above.</div></div><label class="chk"><input type="checkbox" id="mkAbsent"${S.mkAbsent ? ' checked' : ''}> Only countries where we do not sell</label></div>
         <div class="tbl-wrap"><table class="pm-table"><thead><tr><th>Country</th><th class="num">Competitors</th><th>We sell here</th><th>Who</th></tr></thead><tbody>${rows.map((r) => `<tr><td><button type="button" class="linkbtn" data-ctry="${r.key}">${esc(r.n)}</button></td><td class="num">${r.brands.length}</td><td>${r.ours ? '<span class="us-pill">Yes</span>' : '<span class="muted">No</span>'}</td><td class="pa-cats">${esc(r.brands.slice(0, 8).join(', '))}${r.brands.length > 8 ? ', …' : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">No countries listed for this selection yet.</td></tr>'}</tbody></table></div></div>
@@ -404,8 +420,11 @@
       </tbody></table>`;
   }
   /* =====================  CHARTS  ===================== */
-  // Palette: Brompton is #002fa7. Everyone else uses #FFFFFF, #DBDBDB, #F6F6F6 and #707070, told apart by line style as well as shade.
-  const US_BLUE = '#002fa7', PAL = ['#FFFFFF', '#DBDBDB', '#707070', '#F6F6F6'], DASH = ['', '7 4', '2 3', '11 3 2 3'];
+  // Palette (v3.11): Brompton stays #002fa7 (with a white ring so it reads on black). Competitors get seven distinct hues, checked for
+  // colour-blind separation and 3:1 contrast on the dark chart background, in a fixed order. A colour follows the brand: the watchlist
+  // first, then A to Z, among brands that have something to plot. Brands beyond the seventh are grey with a dashed line.
+  const US_BLUE = '#002fa7', PAL = ['#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'], REST = '#8a8a8a', DASH = ['', '6 4', '2 3', '10 3 2 3'];
+  const AHEAD_US = '#3987e5', AHEAD_THEM = '#d95926'; // head-to-head: blue where we are ahead, orange where they are
   const PRICE_TICKS = [100, 250, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000, 7500, 10000, 15000];
   const logTicks = (lo, hi) => { const t = []; for (let e = Math.floor(Math.log10(Math.max(lo, 1e-9))); e <= Math.ceil(Math.log10(hi)); e++) [1, 2, 5].forEach((m) => { const v = m * 10 ** e; if (v >= lo && v <= hi) t.push(v); }); return t; };
   const kfmt = (v) => (v >= 1e6 ? v / 1e6 + 'm' : v >= 1000 ? v / 1000 + 'k' : String(v));
@@ -429,19 +448,25 @@
   };
   const VIEWS = [
     { id: 'ladder', label: 'Price ladder', what: 'One row per brand. The line runs from its cheapest to its dearest model and each dot is a model. The blue band is our own price range, so you can see who sits inside it.' },
+    { id: 'h2h', label: 'Head-to-head: every model against ours', what: 'One row per competitor model, measured against the model chosen as ours (top right). Blue means our model is ahead on that spec (cheaper, lighter or smaller when folded); orange means theirs is. The longer the bar, the bigger the gap. Rows closest to our price come first: they are the ones a customer weighs against ours.' },
     { id: 'rank', label: 'Rankings: who is lightest, smallest, cheapest', what: 'Every model as a bar, best first. Blue bars are ours. The dashed line marks the model selected as ours in the Product Comparison, so you can see who beats it.' },
-    { id: 'pw', label: 'Price vs weight', x: 'price', y: 'weightKg', lines: true, what: 'Higher on the chart means a heavier bike. Models to the left cost less; models lower down are lighter.' },
-    { id: 'pv', label: 'Price vs folded size', x: 'price', y: 'vol', lines: true, what: 'Higher means a bigger folded package; lower means it packs smaller.' },
+    { id: 'pw', label: 'Price vs weight', x: 'price', y: 'weightKg', what: 'Higher on the chart means a heavier bike. Models to the left cost less; models lower down are lighter.' },
+    { id: 'pv', label: 'Price vs folded size', x: 'price', y: 'vol', what: 'Higher means a bigger folded package; lower means it packs smaller.' },
     { id: 'port', label: 'Portability map (weight vs folded size)', x: 'weightKg', y: 'vol', size: 'price', what: 'Bottom-left is best: lighter and smaller when folded. A bigger bubble means a higher price.' },
-    { id: 'pb', label: 'E-bikes: price vs battery', x: 'price', y: 'batteryWh', lines: true, what: 'Higher means a bigger battery. Only electric models with a stated battery size appear. Range is left out on purpose: makers measure it differently, so it does not compare fairly.' },
+    { id: 'pb', label: 'E-bikes: price vs battery', x: 'price', y: 'batteryWh', what: 'Higher means a bigger battery. Only electric models with a stated battery size appear. Range is left out on purpose: makers measure it differently, so it does not compare fairly.' },
     { id: 'pos', label: 'Volume vs value (brands)', x: 'units', y: 'rpb', size: 'sku', log: true, brand: true, what: 'One bubble per brand. Further right sells more bikes a year; higher earns more per bike. Bubble size is the number of models. Needs units and revenue for the brand, so only some brands appear until that data is added.' },
     { id: 'breadth', label: 'Range breadth: models vs accessories (brands)', x: 'sku', y: 'pa', size: 'units', sizeOpt: true, brand: true, what: 'One bubble per brand. Further right lists more bike models; higher sells more parts and accessories (P&A). Bubble size is bikes sold per year when known.' },
     { id: 'share', label: 'Share of voice: who is in the news', what: 'News items per week over the last 12 weeks. Blue is us. Grey and white are the competitors you watch; the dark band is everyone else. More coverage usually means more marketing activity, or more trouble.' }
   ];
+  const colourOrder = () => {
+    // watchlist first, then brands with models (most charts), then brands with only company figures
+    const mods = new Set(S.products.map((p) => p.brand)), rank = (b) => (bm(b).watch ? 0 : mods.has(b) ? 1 : 2);
+    return C.brands.filter((b) => !isUs(b) && (mods.has(b) || unitsOf(b) != null || skuOf(b) != null)).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  };
   const brandStyle = (b) => {
     if (isUs(b)) return { c: US_BLUE, dash: '', us: true };
-    const names = C.brands.filter((x) => !isUs(x)).sort(), i = Math.max(0, names.indexOf(b));
-    return { c: PAL[i % 4], dash: DASH[Math.floor(i / 4) % 4], us: false };
+    const i = colourOrder().indexOf(b);
+    return i >= 0 && i < PAL.length ? { c: PAL[i], dash: '', us: false } : { c: REST, dash: DASH[1 + (Math.max(0, i - PAL.length) % 3)], us: false };
   };
   function chartData() {
     const V = VIEWS.find((v) => v.id === S.cview) || VIEWS[0], okv = (v) => typeof v === 'number' && isFinite(v) && v > 0;
@@ -469,7 +494,7 @@
   const ptTitle = (o, extra) => o.brandRow ? `${o.p.brand}${o.units ? ': ' + o.units.toLocaleString('en-GB') + ' bikes a year' : ''}${o.rpb ? ', ' + gbp(o.rpb) + ' per bike' : ''}${o.sku ? ', ' + o.sku + ' models' : ''}${o.pa != null ? ', ' + o.pa + ' P&A products' : ''}${o.conv ? ' (' + o.conv + ')' : ''}. Select to open the profile.` : `${prodName(o.p)}: ${priceTxt(o.p)}${o.weightKg ? ', ' + o.weightKg + ' kg' : ''}${o.vol ? ', ' + Math.round(o.vol) + ' L folded' : ''}${o.batteryWh ? ', ' + o.batteryWh + ' Wh' : ''}${o.conv ? ' (' + o.conv + ')' : ''}. Select to add to the comparison.${extra || ''}`;
   function dotG(o, cx, cy, r, st, sel) {
     const hollow = !!o.conv;
-    return `<g class="dot" ${o.brandRow ? `data-open="${esc(o.p.brand)}"` : `data-cmp="${esc(o.p.id)}"`}>${sel ? `<circle class="sel" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(r + 4).toFixed(1)}"/>` : ''}<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="${hollow ? '#000' : st.c}" stroke="${hollow ? st.c : st.us ? '#fff' : '#000'}" stroke-width="${hollow ? 2.4 : st.us ? 2 : 1.4}"/><title>${esc(ptTitle(o))}</title></g>`;
+    return `<g class="dot" data-tip="${esc(ptTitle(o))}" ${o.brandRow ? `data-open="${esc(o.p.brand)}"` : `data-cmp="${esc(o.p.id)}"`}>${sel ? `<circle class="sel" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(r + 4).toFixed(1)}"/>` : ''}<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="${hollow ? '#000' : st.c}" stroke="${hollow ? st.c : st.us ? '#fff' : '#000'}" stroke-width="${hollow ? 2.4 : st.us ? 2 : 1.4}"/></g>`;
   }
   function scatterSvg(D) {
     const V = D.V, ay = AXES[V.y], ax = AXES[V.x], pts = D.all.filter((o) => !S.chHide.has(o.p.brand));
@@ -486,7 +511,7 @@
       for (let i = 1; i < lab.length; i++) if (lab[i].ly - lab[i - 1].ly < 21) lab[i].ly = lab[i - 1].ly + 21;
       const over = lab.length ? lab[lab.length - 1].ly - (H - B - 6) : 0; if (over > 0) lab.forEach((l) => { l.ly -= over; });
       lead = lab.map((l) => `<path class="lead" d="M${l.px.toFixed(1)} ${l.py.toFixed(1)} L${W - R + 8} ${l.ly.toFixed(1)}" stroke="${l.s.st.c}"/>`).join('');
-      labs = lab.map((l) => `<text class="blab${l.s.st.us ? ' us' : ''}" x="${W - R + 14}" y="${(l.ly + 4).toFixed(1)}" fill="${l.s.st.us ? '#fff' : l.s.st.c}">${esc(l.s.b)}</text>`).join('');
+      labs = lab.map((l) => `<text class="blab${l.s.st.us ? ' us' : ''}" x="${W - R + 14}" y="${(l.ly + 4).toFixed(1)}" fill="${l.s.st.us ? '#fff' : '#e6e6e6'}">${esc(l.s.b)}</text>`).join('');
     }
     const body = series.map((s) => `<g class="ser${s.st.us ? ' us' : ''}">${V.lines && s.list.length > 1 ? `${s.st.us ? `<polyline points="${s.list.map((o) => `${X(o[V.x]).toFixed(1)},${Y(o[V.y]).toFixed(1)}`).join(' ')}" stroke="#fff" stroke-width="6" fill="none" opacity=".9"/>` : ''}<polyline points="${s.list.map((o) => `${X(o[V.x]).toFixed(1)},${Y(o[V.y]).toFixed(1)}`).join(' ')}" stroke="${s.st.c}" stroke-width="${s.st.us ? 3.4 : 1.8}" stroke-dasharray="${s.st.dash}" fill="none"/>` : ''}${s.list.map((o) => dotG(o, X(o[V.x]), Y(o[V.y]), rad ? rad(o[V.size]) : s.st.us ? 7 : 5, s.st, sel.has(o.p.id))).join('')}${V.lines ? '' : s.list.map((o) => `<text class="dlab" x="${(X(o[V.x]) + (rad ? rad(o[V.size]) : 6) + 5).toFixed(1)}" y="${(Y(o[V.y]) + 4).toFixed(1)}">${esc(o.p.model.length > 24 ? o.p.model.slice(0, 23) + '…' : o.p.model)}</text>`).join('')}</g>`).join('');
     return `<svg class="chart2" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(V.label)}">
@@ -524,7 +549,7 @@
     return `<svg class="chart2" viewBox="0 0 ${W} ${H}" role="img" aria-label="Ranking by ${esc(R0.label)}">
       ${rows.map((r, i) => `<rect class="${i % 2 ? 'rowb' : 'rowa'}" x="0" y="${T + i * RH}" width="${W}" height="${RH}"/>`).join('')}
       ${niceTicks(0, mx).filter((v) => v <= mx * 1.0001).map((v) => `<line class="gl2" x1="${X(v).toFixed(1)}" x2="${X(v).toFixed(1)}" y1="${T}" y2="${H - 30}"/><text class="al" x="${X(v).toFixed(1)}" y="${H - 12}" text-anchor="middle">${esc(R0.fmt(v).replace(/ \/ (kg|Wh)$/, ''))}</text>`).join('')}
-      ${rows.map((r, i) => { const y = T + i * RH, us = isUs(r.p.brand), sel = r.p.id === S.cmp.us || S.cmp.others.includes(r.p.id); return `<g class="dot" data-cmp="${esc(r.p.id)}"><text class="rl${us ? ' us' : ''}" x="${L - 14}" y="${y + RH / 2 + 5}" text-anchor="end">${esc(r.p.brand)} · ${esc(r.p.model.length > 26 ? r.p.model.slice(0, 25) + '…' : r.p.model)}</text><rect x="${L}" y="${y + 7}" width="${Math.max(3, X(r.v) - L).toFixed(1)}" height="${RH - 14}" rx="4" fill="${us ? US_BLUE : '#DBDBDB'}"${sel ? ' stroke="#fff" stroke-width="2"' : ''}/><text class="pr val" x="${(X(r.v) + 10).toFixed(1)}" y="${y + RH / 2 + 5}">${esc(R0.fmt(r.v))}</text><title>${esc(prodName(r.p))}: ${esc(R0.fmt(r.v))}. Select to add to the comparison.</title></g>`; }).join('')}
+      ${rows.map((r, i) => { const y = T + i * RH, us = isUs(r.p.brand), sel = r.p.id === S.cmp.us || S.cmp.others.includes(r.p.id); return `<g class="dot" data-cmp="${esc(r.p.id)}" data-tip="${esc(prodName(r.p))}: ${esc(R0.fmt(r.v))}. Select to add to the comparison."><text class="rl${us ? ' us' : ''}" x="${L - 14}" y="${y + RH / 2 + 5}" text-anchor="end">${esc(r.p.brand)} · ${esc(r.p.model.length > 26 ? r.p.model.slice(0, 25) + '…' : r.p.model)}</text><rect x="${L}" y="${y + 7}" width="${Math.max(3, X(r.v) - L).toFixed(1)}" height="${RH - 14}" rx="4" fill="${us ? US_BLUE : brandStyle(r.p.brand).c}"${sel || us ? ' stroke="#fff" stroke-width="' + (sel ? 2 : 1) + '"' : ''}/><text class="pr val" x="${(X(r.v) + 10).toFixed(1)}" y="${y + RH / 2 + 5}">${esc(R0.fmt(r.v))}</text></g>`; }).join('')}
       ${rv ? `<line class="refl" x1="${X(rv).toFixed(1)}" x2="${X(rv).toFixed(1)}" y1="${T - 6}" y2="${H - 30}"/><text class="pr" x="${X(rv).toFixed(1)}" y="${T - 8}" text-anchor="middle">${esc(ref.model.length > 30 ? ref.model.slice(0, 29) + '…' : ref.model)}</text>` : ''}
     </svg>${cut ? '<div class="sub">Showing the best 24.</div>' : ''}`;
   }
@@ -540,25 +565,59 @@
   function shareSvg(D) {
     const sd = shareData(); if (!sd.total) return '<div class="source-empty">No dated news items in the last 12 weeks yet. Run a scan from the top right.</div>';
     const W = 1000, H = 440, L = 60, R = 40, T = 24, B = 56, n = 12, sums = Array.from({ length: n }, (_, i) => sd.series.reduce((a, s) => a + s.v[i], 0)), yt = niceTicks(0, Math.max(...sums, 1) * 1.1), y1 = yt[yt.length - 1], bw = (W - L - R) / n, Y = (v) => H - B - (v / y1) * (H - T - B);
-    const fills = ['#FFFFFF', '#DBDBDB', '#707070', '#F6F6F6', '#9a9a9a'];
-    let ci = 0; const col = (s) => (isUs(s.b) ? US_BLUE : s.other ? '#2a2a2a' : fills[ci++ % fills.length]); const colors = sd.series.map(col);
+    const col = (s) => (isUs(s.b) ? US_BLUE : s.other ? '#3a3a3a' : brandStyle(s.b).c); const colors = sd.series.map(col);
     const label = (i) => { const d = new Date(sd.now - (11 - i) * 7 * 864e5); return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); };
     return `<svg class="chart2" viewBox="0 0 ${W} ${H}" role="img" aria-label="News items per week by brand">
       ${yt.map((v) => `<line class="gl" x1="${L}" x2="${W - R}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"/><text class="al" x="${L - 10}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${v}</text>`).join('')}
-      ${Array.from({ length: n }, (_, i) => { let acc = 0; return `<g>${sd.series.map((s, k) => { const v = s.v[i]; if (!v) return ''; const y0 = Y(acc), y = Y(acc + v); acc += v; return `<rect x="${(L + i * bw + 6).toFixed(1)}" y="${y.toFixed(1)}" width="${(bw - 12).toFixed(1)}" height="${(y0 - y).toFixed(1)}" fill="${colors[k]}" stroke="#000" stroke-width="1"><title>${esc(s.b)}: ${v} item${v === 1 ? '' : 's'}, week of ${label(i)}</title></rect>`; }).join('')}<text class="al" x="${(L + i * bw + bw / 2).toFixed(1)}" y="${H - B + 22}" text-anchor="middle">${label(i)}</text></g>`; }).join('')}
+      ${Array.from({ length: n }, (_, i) => { let acc = 0; return `<g>${sd.series.map((s, k) => { const v = s.v[i]; if (!v) return ''; const y0 = Y(acc), y = Y(acc + v); acc += v; return `<rect x="${(L + i * bw + 6).toFixed(1)}" y="${y.toFixed(1)}" width="${(bw - 12).toFixed(1)}" height="${(y0 - y).toFixed(1)}" fill="${colors[k]}" stroke="#000" stroke-width="2" data-tip="${esc(s.b)}: ${v} item${v === 1 ? '' : 's'}, week of ${label(i)}"/>`; }).join('')}<text class="al" x="${(L + i * bw + bw / 2).toFixed(1)}" y="${H - B + 22}" text-anchor="middle">${label(i)}</text></g>`; }).join('')}
       <line class="ax" x1="${L}" x2="${W - R}" y1="${H - B}" y2="${H - B}"/><text class="at" x="${L}" y="${T - 8}">News items per week</text></svg>
       <div class="sov-legend">${sd.series.map((s, k) => { const t = s.v.reduce((a, c) => a + c, 0); return `<span><i style="background:${colors[k]}"></i>${esc(s.b)} <b>${t}</b> <small>${Math.round((t / sd.total) * 100)}%</small></span>`; }).join('')}</div>`;
   }
+  /* ----- Head-to-head and the positioning summary (v3.11): the questions sales and product ask most ----- */
+  const H2H = [
+    { k: 'price', l: 'Price', get: (p) => priceOf(p).v, fmt: (d) => (d < 0 ? '−' : '+') + gbp(Math.abs(d)), u: 'cheaper' },
+    { k: 'weightKg', l: 'Weight', get: (p) => p.weightKg, fmt: (d) => (d < 0 ? '−' : '+') + Math.abs(Math.round(d * 10) / 10) + ' kg', u: 'lighter' },
+    { k: 'vol', l: 'Folded size', get: (p) => vol(p), fmt: (d) => (d < 0 ? '−' : '+') + Math.abs(Math.round(d)) + ' L', u: 'smaller folded' }
+  ];
+  const baseModel = () => prodById(S.cmp.us) || S.products.find((p) => isUs(p.brand)) || null;
+  function positioning() {
+    const b = baseModel(); if (!b) return '';
+    const others = S.products.filter((p) => !isUs(p.brand)), pv = priceOf(b).v;
+    const tile = (m) => { const bv = m.get(b); if (bv == null) return `<div class="metric"><span>${m.l}</span><strong>—</strong><small>No ${m.l.toLowerCase()} for ${esc(b.model)} yet</small></div>`;
+      const w = others.filter((p) => m.get(p) != null), n = w.filter((p) => m.get(p) < bv).length;
+      return `<div class="metric"><span>Competitor models ${m.u}</span><strong>${n}<small> of ${w.length}</small></strong><small>than ours at ${m.k === 'price' ? priceTxt(b) : m.k === 'vol' ? Math.round(bv) + ' L' : bv + ' kg'}${w.length < others.length ? ` · ${others.length - w.length} without a figure` : ''}</small></div>`; };
+    const priced = S.products.filter((p) => priceOf(p).v != null).sort((x, y) => priceOf(x).v - priceOf(y).v), rank = priced.findIndex((p) => p.id === b.id);
+    const near = pv == null ? [] : others.filter((p) => { const v = priceOf(p).v; return v != null && Math.abs(v - pv) <= pv * 0.15; });
+    return `<div class="metrics pos-tiles">${H2H.map(tile).join('')}<div class="metric"><span>Price rivals (within ±15%)</span><strong>${near.length}</strong><small>${near.length ? esc(near.slice(0, 3).map(prodName).join(', ')) + (near.length > 3 ? '…' : '') : pv == null ? 'Add a price to ' + esc(b.model) : `${esc(b.model)} is ${rank >= 0 ? `#${rank + 1} cheapest of ${priced.length}` : 'unpriced'}`}</small></div></div>`;
+  }
+  function h2hView() {
+    const b = baseModel(); if (!b) return '<div class="source-empty">Add one of our own models first (Product Comparison > Add model).</div>';
+    const pv = priceOf(b).v, rows = S.products.filter((p) => p.id !== b.id && (!isUs(p.brand) || !isUs(b.brand)) && !S.chHide.has(p.brand) && H2H.some((m) => m.get(p) != null && m.get(b) != null));
+    if (!rows.length) return `<div class="source-empty">No competitor model shares a spec with ${esc(b.model)} yet. Add prices, weights or folded sizes in Collect data.</div>`;
+    rows.sort((x, y) => { const a = priceOf(x).v, c = priceOf(y).v; if (pv == null) return x.brand.localeCompare(y.brand); return (a == null) - (c == null) || Math.abs(a - pv) - Math.abs(c - pv); });
+    const max = H2H.map((m) => Math.max(1e-9, ...rows.map((p) => (m.get(p) != null && m.get(b) != null ? Math.abs(m.get(p) - m.get(b)) : 0))));
+    const cell = (m, i, p) => {
+      const a = m.get(p), c = m.get(b); if (a == null || c == null) return '<div class="h2h-c none">—</div>';
+      const d = a - c, w = Math.max(d ? 3 : 0, Math.abs(d) / max[i] * 50), them = d < 0, lab = Math.abs(d) < 1e-9 ? 'Same' : m.fmt(d);
+      return `<div class="h2h-c" data-tip="${esc(prodName(p))}: ${esc(m.k === 'price' ? priceTxt(p) : m.k === 'vol' ? Math.round(a) + ' L' : a + ' kg')} against ${esc(m.k === 'price' ? priceTxt(b) : m.k === 'vol' ? Math.round(c) + ' L' : c + ' kg')} for ${esc(b.model)}. ${d ? (them ? 'Theirs is ' + m.u + '.' : 'Ours is ' + m.u + '.') : ''}"><div class="h2h-track"><i style="${them ? `right:50%;width:${w}%` : `left:50%;width:${w}%`};background:${them ? AHEAD_THEM : AHEAD_US}"></i></div><span class="${them ? 'them' : d ? 'us' : ''}">${lab}</span></div>`;
+    };
+    const wins = (p) => H2H.filter((m) => m.get(p) != null && m.get(b) != null && m.get(p) < m.get(b)).length;
+    return `<div class="h2h"><div class="h2h-r h2h-head"><div>Competitor model</div>${H2H.map((m) => `<div>${m.l} vs ours</div>`).join('')}<div>Ahead of ours on</div></div>
+      ${rows.map((p) => { const st = brandStyle(p.brand), w = wins(p), n = H2H.filter((m) => m.get(p) != null && m.get(b) != null).length; return `<div class="h2h-r${isUs(p.brand) ? ' is-us' : ''}" data-cmp="${esc(p.id)}"><div class="h2h-n"><i class="dotc" style="background:${st.c}"></i><span><b>${esc(p.brand)}</b> ${esc(p.model)}<small>${esc(priceTxt(p))}${p.weightKg ? ' · ' + p.weightKg + ' kg' : ''}</small></span></div>${H2H.map((m, i) => cell(m, i, p)).join('')}<div class="h2h-w"><span class="h2h-score ${w ? 'them' : 'us'}">${w} of ${n}</span></div></div>`; }).join('')}</div>
+      <div class="sub h2h-foot"><span><i class="sw" style="background:${AHEAD_US}"></i>${esc(b.model)} is ahead</span><span><i class="sw" style="background:${AHEAD_THEM}"></i>The competitor is ahead</span><span>Select a row to add it to the Product Comparison.</span></div>`;
+  }
+
   function insChart() {
     const D = chartData(), V = D.V, q = S.chFind.toLowerCase(), list = D.names.filter((b) => !q || b.toLowerCase().includes(q)), can = list.filter((b) => D.plotted.has(b)), cant = list.filter((b) => !D.plotted.has(b));
-    const special = V.id === 'rank' || V.id === 'share', usesPrice = V.id === 'ladder' || V.x === 'price' || V.log;
+    const special = V.id === 'rank' || V.id === 'share' || V.id === 'h2h', usesPrice = V.id === 'ladder' || V.x === 'price' || V.log;
     const item = (b, ok) => { const on = !S.chHide.has(b), st = brandStyle(b); return `<button type="button" class="tgl${on && ok ? '' : ' off'}" data-tgl="${esc(b)}" aria-pressed="${on}"><span class="tn">${isUs(b) ? '<b class="pm-us">US</b> ' : ''}${esc(b)}${ok ? '' : `<small>${esc(D.why(b))}</small>`}</span><i class="dotc" style="${ok && on ? `background:${st.c}` : `border-color:${st.c}`}"></i></button>`; };
-    const drawn = V.id === 'rank' ? S.products.filter((p) => { const g = (RANKS[S.rankBy] || RANKS.weightKg).get(p); return typeof g === 'number' && g > 0; }).length : V.id === 'share' ? shareData().total : D.all.length, of = V.id === 'share' ? 'news items in the last 12 weeks' : V.brand ? `of ${C.brands.length} brands` : `of ${S.products.length} models`;
-    const body = V.id === 'ladder' ? ladderSvg(D) : V.id === 'rank' ? rankSvg(D) : V.id === 'share' ? shareSvg(D) : scatterSvg(D);
+    const drawn = V.id === 'rank' ? S.products.filter((p) => { const g = (RANKS[S.rankBy] || RANKS.weightKg).get(p); return typeof g === 'number' && g > 0; }).length : V.id === 'share' ? shareData().total : V.id === 'h2h' ? (baseModel() ? S.products.filter((p) => p.id !== baseModel().id && (!isUs(p.brand) || !isUs(baseModel().brand))).length : 0) : D.all.length, of = V.id === 'share' ? 'news items in the last 12 weeks' : V.brand ? `of ${C.brands.length} brands` : `of ${S.products.length} models`;
+    const body = V.id === 'ladder' ? ladderSvg(D) : V.id === 'h2h' ? h2hView() : V.id === 'rank' ? rankSvg(D) : V.id === 'share' ? shareSvg(D) : scatterSvg(D);
     const extra = V.id === 'rank' ? `<label class="cmp-bar">Rank by<select class="field" id="rankBy">${Object.keys(RANKS).map((k) => `<option value="${k}"${k === S.rankBy ? ' selected' : ''}>${RANKS[k].label}</option>`).join('')}</select></label>` : V.id === 'ladder' ? `<label class="cmp-bar">Order rows<select class="field" id="ladSort"><option value="cheap"${S.ladSort === 'cheap' ? ' selected' : ''}>Cheapest first</option><option value="dear"${S.ladSort === 'dear' ? ' selected' : ''}>Dearest first</option><option value="az"${S.ladSort === 'az' ? ' selected' : ''}>A to Z</option></select></label>` : '';
-    return `<div class="panel cx-panel"><div class="chart-head"><div><h3>${esc(V.label)}</h3><div class="sub">${V.id === 'share' ? `${drawn} ${of}.` : `${drawn} ${of} ${V.id === 'rank' ? 'can be ranked' : 'are drawn'}.`}</div></div>
+    const base = baseModel(), baseSel = S.products.length ? `<label class="cmp-bar">Measured against<select class="field" id="chBase">${S.products.slice().sort((a, c) => (isUs(c.brand) - isUs(a.brand)) || prodName(a).localeCompare(prodName(c))).map((p) => `<option value="${esc(p.id)}"${base && p.id === base.id ? ' selected' : ''}>${esc(prodName(p))}${isUs(p.brand) ? '' : ' (competitor)'}</option>`).join('')}</select></label>` : '';
+    return `${base ? `<div class="pos-head"><div><h3>Where ${esc(base.model)} stands</h3><div class="sub">Against every competitor model we track. Change the model on the right; the Product Comparison and the rankings use the same one.</div></div>${baseSel}</div>${positioning()}` : ''}<div class="panel cx-panel"><div class="chart-head"><div><h3>${esc(V.label)}</h3><div class="sub">${V.id === 'share' ? `${drawn} ${of}.` : `${drawn} ${of} ${V.id === 'rank' ? 'can be ranked' : 'are drawn'}.`}</div></div>
         <div class="cx-ctl"><label class="cmp-bar">View<select class="field" id="chView">${VIEWS.map((v) => `<option value="${v.id}"${v.id === V.id ? ' selected' : ''}>${esc(v.label)}</option>`).join('')}</select></label>${extra}${usesPrice && V.id !== 'rank' ? `<div class="seg" role="group" aria-label="Scale"><button type="button" id="chLin" class="${S.cscale === 'lin' ? 'on' : ''}">Linear</button><button type="button" id="chLog" class="${S.cscale === 'log' ? 'on' : ''}">Log</button></div>` : ''}</div></div>
-      ${gloss([['What it shows', V.what], ...(V.id === 'share' || V.id === 'rank' ? [] : [['Dots', V.brand ? 'One brand each. Select a dot to open its profile.' : 'One model each. Select a dot to add it to the Product Comparison.']]), ...(usesPrice && V.id !== 'rank' ? [['Log scale', 'Each step to the right is a multiple, not a fixed amount, so small and large values both stay readable.']] : []), ...(D.anyConv ? [['Hollow dot', V.brand ? 'A figure the brand states itself and we have not checked, or one worked out from it.' : 'Priced in € or $, so the £ price is converted.']] : [])])}
+      ${gloss([['What it shows', V.what], ...(special ? [] : [['Dots', V.brand ? 'One brand each. Select a dot to open its profile.' : 'One model each. Select a dot to add it to the Product Comparison.']]), ...(usesPrice && V.id !== 'rank' ? [['Log scale', 'Each step to the right is a multiple, not a fixed amount, so small and large values both stay readable.']] : []), ...(D.anyConv && !special ? [['Hollow dot', V.brand ? 'A figure the brand states itself and we have not checked, or one worked out from it.' : 'Priced in € or $, so the £ price is converted.']] : [])])}
       ${D.anyConv && !V.brand && !special ? `<div class="fx">Rates used for € and $ prices (approximate, change if you like): €1 = £<input class="field" id="fxEUR" type="number" step="0.01" min="0.1" max="2" value="${S.fx.EUR}"> $1 = £<input class="field" id="fxUSD" type="number" step="0.01" min="0.1" max="2" value="${S.fx.USD}"></div>` : ''}
       <div class="cx"><div class="cx-main">${body}</div>
       <aside class="cx-side">${V.id === 'share' ? '<div class="cx-sh"><strong>How it is grouped</strong></div><div class="sub">Us, the competitors on your watchlist and the busiest others get their own colour; everyone else is the dark band. Change the watchlist under Overview > Manage watchlist.</div>' : `<div class="cx-sh"><strong>Brands</strong><span class="muted">${D.names.length}</span><button type="button" class="linkbtn" id="chReset" title="Show every brand">Reset</button></div><input class="field" id="chFind" placeholder="Find brands" value="${esc(S.chFind)}" aria-label="Find brands"><div class="cx-list">${can.length ? `<div class="cx-g">On this chart</div>${can.map((b) => item(b, true)).join('')}` : ''}${cant.length ? `<div class="cx-g">Missing data for this view</div>${cant.map((b) => item(b, false)).join('')}` : ''}${list.length ? '' : '<div class="muted">No brand matches.</div>'}</div>${cant.length ? '<button type="button" class="imagebtn" data-go="collect">Collect the missing data</button>' : ''}`}</aside></div></div>`;
@@ -574,7 +633,7 @@
     fixCmp();
     const noModels = C.brands.filter((b) => !S.products.some((p) => p.brand === b));
     $('#matrix').innerHTML = `<div class="head"><div><h2>Product Comparison</h2><div class="sub">Compare up to ${MAXCMP} models side by side. Select + to add a model, × to take one out. Us: <strong>${esc(usName())}</strong>.</div></div>
-      <div class="source-actions"><button type="button" class="primary" id="addModel">Add model</button><button type="button" class="imagebtn" id="loadStarter">Load researched data</button><button type="button" class="imagebtn" data-go="collect" title="Import specs from a spreadsheet, pasted text or an AI answer, or download a spreadsheet to fill in">Import / export data</button><button type="button" class="imagebtn" id="toggleWide">${S.wide ? 'Show menu' : 'Full width'}</button><input type="file" id="csvFile" accept=".csv,text/csv" hidden></div></div>
+      <div class="source-actions"><button type="button" class="primary" id="addModel">Add model</button><button type="button" class="imagebtn" id="loadStarter">Load researched data</button><button type="button" class="imagebtn" data-go="collect" title="Import specs from a spreadsheet, pasted text or an AI answer, or download a spreadsheet to fill in">Import / export data</button><button type="button" class="imagebtn" id="toggleWide" title="Use the whole width of the screen for the comparison">${S.wide ? 'Standard width' : 'Full width'}</button><input type="file" id="csvFile" accept=".csv,text/csv" hidden></div></div>
       <div class="panel ap-panel">${matrixTable()}</div>
       <div class="panel"><div class="chart-head"><div><h3>All models</h3><div class="sub">${S.products.length} saved. Select Export CSV to get a spreadsheet to fill in (brands with no models appear as empty rows), then Import CSV.</div></div><input class="field" id="mdlSearch" placeholder="Filter models" value="${esc(S.q)}"></div><div class="tbl-wrap" id="mdlBox">${modelsTable()}</div>
         <details class="gaps"><summary>Brands with no models yet (${noModels.length})</summary><div class="chips">${noModels.length ? noModels.map((b) => `<button type="button" class="chip gap-chip" data-add="${esc(b)}">${esc(b)}</button>`).join('') : '<em class="muted">None.</em>'}</div></details></div>`;
@@ -1042,16 +1101,16 @@
   }
   function addCompetitorTools() {
     const sec = $('#competitors'); if (!sec || $('#fetchPhotos')) return;
-    sec.insertAdjacentHTML('afterbegin', '<div class="pm-tools"><button type="button" class="primary" id="addComp">Add competitor</button><button type="button" class="imagebtn" id="fetchPhotos">Fetch missing photos</button><button type="button" class="imagebtn" data-go="collect">Collect data</button><button type="button" class="imagebtn" id="restoreBrands" hidden>Restore removed</button><input type="file" id="brandFile" accept=".json,.csv,application/json,text/csv" hidden><span class="sub" id="photoMsg"></span></div>');
+    const head = sec.querySelector('.head'); (head || sec).insertAdjacentHTML(head ? 'afterend' : 'afterbegin', '<div class="pm-tools"><button type="button" class="primary" id="addComp">Add competitor</button><button type="button" class="imagebtn" id="fetchPhotos">Fetch missing photos</button><button type="button" class="imagebtn" data-go="collect">Collect data</button><button type="button" class="imagebtn" id="restoreBrands" hidden>Restore removed</button><input type="file" id="brandFile" accept=".json,.csv,application/json,text/csv" hidden><span class="sub" id="photoMsg"></span></div>');
   }
 
   /* ---------- map hover panel ---------- */
   function showTip(el, ev) {
     const wrap = $('#mkWrap'), tip = $('#mkTip'), info = S.mkInfo && S.mkInfo[el.dataset.ctry]; if (!wrap || !tip || !info) return;
     const us = usName(), list = info.brands;
-    tip.innerHTML = `<div class="tip-h"><strong>${esc(info.n)}</strong><span class="${info.ours ? 'us-pill' : 'tip-no'}">${info.ours ? esc(us) + ' sells here' : esc(us) + ' absent'}</span></div>
+    tip.innerHTML = `<div class="tip-h"><strong>${esc(info.n)}</strong><span class="${info.ours ? 'us-pill' : 'tip-no'}">${info.ours ? 'We sell here' : 'We are absent'}</span></div>
       <div class="tip-s">${list.length ? `${list.length} competitor${list.length === 1 ? '' : 's'} sell${list.length === 1 ? 's' : ''} here` : 'No competitor listed here'}</div>
-      ${list.length ? `<ul>${list.slice(0, 14).map((b) => `<li>${esc(b)}${bm(b).watch ? ' <span class="tip-w">★</span>' : ''}</li>`).join('')}</ul>${list.length > 14 ? `<div class="tip-s">and ${list.length - 14} more</div>` : ''}` : ''}`;
+      ${list.length ? `<ul>${list.slice().sort((a, b) => (!!bm(b).watch - !!bm(a).watch) || a.localeCompare(b)).slice(0, 14).map((b) => `<li class="${bm(b).watch ? 'w' : ''}">${esc(b)}${bm(b).watch ? ' <span class="tip-w">★</span>' : ''}</li>`).join('')}</ul>${list.length > 14 ? `<div class="tip-s">and ${list.length - 14} more</div>` : ''}` : ''}`;
     tip.hidden = false;
     const wr = wrap.getBoundingClientRect(), tw = tip.offsetWidth, th = tip.offsetHeight, x = ev.clientX - wr.left, y = ev.clientY - wr.top, gap = 18;
     // next to the pointer: to the right when there is room, otherwise to the left (and the other way round); never outside the map window
@@ -1062,8 +1121,23 @@
   }
   const hideTip = () => { const t = $('#mkTip'); if (t) t.hidden = true; };
 
+  /* ---------- chart hover tooltip (v3.11): one small panel that follows the pointer, instead of the browser's slow title tooltips ---------- */
+  function vizTip(el, ev) {
+    let tip = $('#vizTip'); if (!tip) { tip = document.createElement('div'); tip.id = 'vizTip'; tip.className = 'viz-tip'; tip.setAttribute('role', 'tooltip'); document.body.appendChild(tip); }
+    if (!el) { tip.classList.remove('on'); return; }
+    if (tip.dataset.src !== el.dataset.tip) { tip.textContent = el.dataset.tip; tip.dataset.src = el.dataset.tip; }
+    tip.classList.add('on');
+    const w = tip.offsetWidth, h = tip.offsetHeight, vw = document.documentElement.clientWidth, gap = 14;
+    let x = ev.clientX + gap; if (x + w > vw - 8) x = ev.clientX - gap - w;
+    let y = ev.clientY - h - gap; if (y < 8) y = ev.clientY + gap;
+    tip.style.transform = `translate(${Math.max(8, x)}px,${y}px)`;
+  }
+
   /* ---------- events wiring ---------- */
   function wire() {
+    document.addEventListener('mousemove', (e) => { const c = e.target.closest && e.target.closest('[data-tip]'); vizTip(c, e); }, { passive: true });
+    document.addEventListener('scroll', () => vizTip(null), { passive: true });
+    document.addEventListener('toggle', (e) => { if (e.target.classList && e.target.classList.contains('howto')) { S.howOpen = e.target.open; sv('cih_pm_howto', S.howOpen); } }, true);
     document.addEventListener('mouseover', (e) => { const c = e.target.closest && e.target.closest('#mkWrap [data-ctry]'); if (c) showTip(c, e); });
     document.addEventListener('mouseout', (e) => { const c = e.target.closest && e.target.closest('#mkWrap [data-ctry]'); if (c && !(e.relatedTarget && c.contains(e.relatedTarget))) hideTip(); });
     document.addEventListener('click', async (e) => {
@@ -1073,11 +1147,15 @@
       const arc = t.closest('[data-arch]'); if (arc) return articleAct(arc.dataset.arch, [arc.dataset.aid]);
       const adl = t.closest('[data-adel]'); if (adl) { if (!confirm('Delete this article for good? It will not come back when sources are scanned again.')) return; return articleAct('delete', [adl.dataset.adel]); }
       if (t.id === 'cleanBtn') return openClean();
+      if (t.id === 'dupToggle') { S.showDups = !S.showDups; return C.feed(); }
+      const nd = t.closest('[data-notdup]'); if (nd) { try { await api('POST', '/api/news', { id: nd.dataset.notdup, notDuplicate: true }); toast('Kept as its own story'); await C.loadLive(); } catch (err) { toast(err.message); } return; }
       const mpc = t.closest('[data-mpic]'); if (mpc) { const id = mpc.dataset.mpic, p = prodById(id), cur = p && modelPic(p); if (cur && canAdjust(cur) && confirm('Adjust the current picture?\n\nOK = adjust it, Cancel = choose a new file instead.')) return editPicture(cur, { title: `Picture: ${prodName(p)}`, onSave: (u) => saveModelPicture(id, u), onRemove: () => removeModelPicture(id) }); return pickModelPicture(id); }
       if (t.id === 'addComp') { if (!$('#pmAddComp')) addCompDialog(); $('#pmAddComp').showModal(); $('#ac-name').focus(); return; }
       if (t.id === 'restoreBrands') return restoreBrands();
       if (t.id === 'pb-remove') return openRemoveBrand(t.dataset.name);
       const w = t.closest('#pmWin button'); if (w) { S.win = +w.dataset.w; return renderInsights(); }
+      const mz = t.closest('[data-mkzoom]'); if (mz) { S.mkZoom = mz.dataset.mkzoom; return renderInsights(); }
+      const mm = t.closest('[data-mkmode]'); if (mm) { S.mkMode = mm.dataset.mkmode; sv('cih_pm_mkmode', S.mkMode); return renderInsights(); }
       const it = t.closest('[data-itab]'); if (it) { S.insTab = it.dataset.itab; return renderInsights(); }
       const ps = t.closest('[data-psort]'); if (ps) { const k = ps.dataset.psort; S.pfSort = { k, d: S.pfSort.k === k ? -S.pfSort.d : (k === 'b' ? 1 : -1) }; return renderInsights(); }
       const gt = t.closest('[data-go]'); if (gt) { if (gt.dataset.itabGo) S.insTab = gt.dataset.itabGo; return go(gt.dataset.go); }
@@ -1123,6 +1201,7 @@
       if (t.id === 'showDiff') { S.diff = t.checked; return renderMatrix(); }
       if (t.id === 'chView') { S.cview = t.value; return renderInsights(); }
       if (t.id === 'rankBy') { S.rankBy = t.value; return renderInsights(); }
+      if (t.id === 'chBase') { S.cmp.us = t.value; S.cmp.others = S.cmp.others.filter((x) => x !== t.value); fixCmp(); return renderInsights(); }
       if (t.id === 'ladSort') { S.ladSort = t.value; return renderInsights(); }
       if (t.id === 'mkSel') { S.mkSel = t.value; S.mkC = ''; return renderInsights(); }
       if (t.id === 'mkAbsent') { S.mkAbsent = t.checked; return renderInsights(); }
@@ -1150,7 +1229,11 @@
   }
 
   /* ---------- start ---------- */
-  Object.assign(C, { editPicture, canAdjust, picUp: (n) => bm(n).photoSource === 'uploaded', prio, passNews, photo: (n) => bm(n).photo || '', pic: (n) => (bm(n).photoSource === 'uploaded' && bm(n).photo) || C.images[n] || bm(n).photo || '', setPhoto: (b, photo, src) => { S.brands[b] = Object.assign({}, bm(b), { photo, photoSource: src }); }, isUs, badges, evtChip, passEvt: (n) => !C.evtSel || evtOf(n) === C.evtSel, evtSel: '', openProfile, renderInsights, onNews: () => { const a = ($('.view.active') || {}).id; if (a === 'insights') RENDER[a](); } });
+  Object.assign(C, { editPicture, canAdjust, picUp: (n) => bm(n).photoSource === 'uploaded', prio, passNews, photo: (n) => bm(n).photo || '', pic: (n) => (bm(n).photoSource === 'uploaded' && bm(n).photo) || C.images[n] || bm(n).photo || '', setPhoto: (b, photo, src) => { S.brands[b] = Object.assign({}, bm(b), { photo, photoSource: src }); }, isUs, badges, evtChip, dupLine, dupMeta, passEvt: (n) => !C.evtSel || evtOf(n) === C.evtSel, evtSel: '', openProfile, renderInsights, onNews: () => {
+    // The feed reloads every minute. Only redraw Insights when the news actually changed, so the page does not jump, lose focus or close panels for nothing.
+    const a = ($('.view.active') || {}).id, sig = C.news.length + '|' + (C.news[0] || {}).date + '|' + C.news.filter((n) => n.archived || n.dupOf).length;
+    if (a === 'insights' && sig !== S.newsSig) { const y = window.scrollY; RENDER[a](); window.scrollTo(0, y); } S.newsSig = sig;
+  } });
   mkView('matrix', ''); mkView('profile', '');
   mkNav('matrix', 'Product Comparison', 'competitors');
   const side = $('.side'); ['sources', 'competitors', 'matrix', 'social', 'insights', 'news'].forEach((v) => side.insertBefore(side.querySelector(`.nav[data-v="${v}"]`), side.firstChild)); // News, Insights, Social, Matrix, Competitors, Sources
@@ -1163,7 +1246,7 @@
   $('#mpicFile').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; const p = prodById(S.mpic); if (!f || !p) return; if (!/^image\/(png|jpeg|webp)$/.test(f.type) || f.size > 12e6) return toast('Choose a PNG, JPEG or WebP picture under 12 MB'); editPicture(f, { title: `Picture: ${prodName(p)}`, onSave: (u) => saveModelPicture(p.id, u), onRemove: modelPic(p) ? () => removeModelPicture(p.id) : null }); };
   window.CIPM = { S, api, RENDER, mkView, mkNav, go, C, usName, openModel, brandNow, setBrandData, applyBrands, exportBrandsCsv, exportCsv };
   modelDialog(); brandDialog(); addCompetitorTools(); wire();
-  S.cmp = Object.assign({ us: '', others: [] }, ld('cih_pm_cmp', {})); S.wide = ld('cih_pm_wide', true); S.fx = Object.assign({}, FX_DEFAULT, ld('cih_pm_fx', {}));
+  S.cmp = Object.assign({ us: '', others: [] }, ld('cih_pm_cmp', {})); S.wide = ld('cih_pm_wide', true); S.fx = Object.assign({}, FX_DEFAULT, ld('cih_pm_fx', {})); S.mkMode = ld('cih_pm_mkmode', 'count') === 'gap' ? 'gap' : 'count'; S.howOpen = !!ld('cih_pm_howto', false);
   (async () => {
     try { const [b, p] = await Promise.all([api('GET', '/api/brands'), api('GET', '/api/products')]); setBrandData(b); S.products = p.products || []; }
     catch (err) { toast('Could not load saved profiles and models: ' + err.message); }
