@@ -453,7 +453,7 @@
     const fmtD = (d) => (d ? new Date(d + (d.length === 10 ? 'T12:00:00' : '')).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'never');
     const thumb = (p, cls) => { const m = X.modelPic(p); return m ? `<img class="${cls}" src="${esc(m)}" alt="" loading="lazy">` : `<span class="${cls} empty" aria-hidden="true"></span>`; };
     try { const m = localStorage.getItem('cih_cl_method'); if (['fetch', 'ai', 'paste', 'type'].includes(m)) ui.method = m; } catch (e) { /* private mode */ }
-    const root = mkView('collect', ''); mkNav('collect', 'Collect data', 'competitors');
+    const root = mkView('collect', ''); mkNav('collect', 'Collect data', 'sources');
     const us = () => X.usName();
     const rank = (p) => (p.brand === us() ? 0 : (S.brands[p.brand] || {}).watch ? 1 : 2);
     const sorted = () => S.products.slice().sort((a, b) => rank(a) - rank(b) || a.brand.localeCompare(b.brand) || a.model.localeCompare(b.model));

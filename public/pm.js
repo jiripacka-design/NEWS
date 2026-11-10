@@ -8,7 +8,7 @@
   if (!C || !E) { console.error('pm.js: tracker core or events.js missing'); return; }
   const { $, $$, esc, toast } = C;
   const REG = ['US', 'EMEA', 'APAC', 'CHINA'], CATS = ['Folding bike', 'Folding e-bike', 'E-bike', 'Cargo e-bike'], THR = ['High', 'Medium', 'Low'];
-  const S = { brands: {}, products: [], win: 30, cmp: { us: '', others: [] }, sort: { k: 'brand', d: 1 }, q: '', profile: '', digest: null, removed: [], arch: 'hide', showEmpty: false, diff: false, wide: true, insTab: 'markets', pfSort: { k: 'u', d: -1 }, cview: 'ladder', ladSort: 'cheap', rankBy: 'weightKg', cscale: 'log', chHide: new Set(), chFind: '', mkSel: 'all', mkMode: 'count', mkC: '', mkAbsent: false, pickSlot: 0, pickQ: '' };
+  const S = { brands: {}, products: [], win: 30, cmp: { us: '', others: [] }, sort: { k: 'brand', d: 1 }, q: '', profile: '', digest: null, removed: [], arch: 'hide', showEmpty: false, diff: false, wide: true, insTab: 'markets', pfSort: { k: 'u', d: -1 }, rgSort: { k: '', d: 1 }, cview: 'ladder', ladSort: 'cheap', rankBy: 'weightKg', cscale: 'log', chHide: new Set(), chFind: '', mkSel: 'all', mkMode: 'count', mkC: '', mkAbsent: false, pickSlot: 0, pickQ: '' };
   const slug = (t) => String(t).toLowerCase().replace(/[^a-z]+/g, '-').replace(/^-|-$/g, '');
   const sv = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } };
   const ld = (k, f) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? f : v; } catch (e) { return f; } };
@@ -119,8 +119,19 @@
     if (ref) side.insertBefore(b, ref); else side.appendChild(b);
   }
   const RENDER = {};
+  // Remember the screen across a normal page refresh. The tracker runs inside an iframe on '/', so the hash is also
+  // mirrored on the parent page (same origin), which is the address the browser reloads.
+  const SCREENS = ['news', 'insights', 'social', 'matrix', 'collect', 'competitors', 'sources', 'history'];
+  function savedScreen() {
+    try { const h = (window.parent !== window ? window.parent.location.hash : '') || location.hash || ''; const v = h.replace(/^#/, ''); return SCREENS.includes(v) ? v : ''; } catch (e) { return SCREENS.includes((location.hash || '').slice(1)) ? location.hash.slice(1) : ''; }
+  }
+  function rememberScreen(id) {
+    if (!SCREENS.includes(id)) return;
+    try { history.replaceState(null, '', '#' + id); } catch (e) { /* ignore */ }
+    try { if (window.parent !== window) window.parent.history.replaceState(null, '', '#' + id); } catch (e) { /* ignore */ }
+  }
   function go(id) {
-    C.nav(id);
+    C.nav(id); rememberScreen(id);
     if (id === 'profile') $$('.nav').forEach((x) => x.classList.toggle('active', x.dataset.v === 'competitors'));
     document.body.classList.toggle('wide', id === 'matrix' && S.wide);
     if (RENDER[id]) RENDER[id]();
@@ -831,7 +842,11 @@
   }
   function rangeHtml(n) {
     const ps = S.products.filter((p) => p.brand === n); if (!ps.length) return `<p class="muted">No models recorded.</p><button type="button" class="imagebtn" data-add="${esc(n)}">Add a model</button>`;
-    return `<div class="tbl-wrap"><table class="pm-table"><thead><tr><th class="mthumb-h">Picture</th><th>Model</th><th>Category</th><th class="num">Price</th><th class="num">Weight</th><th class="num">Battery</th><th class="num">Range</th><th>Launch</th><th></th></tr></thead><tbody>${ps.map((p) => `<tr><td class="mthumb-c">${thumbBtn(p)}</td><td>${esc(p.model)}${discTag(p)}</td><td>${esc(p.category || '—')}</td><td class="num">${priceTxt(p)}</td><td class="num">${p.weightKg != null ? p.weightKg + ' kg' : '—'}</td><td class="num">${p.batteryWh != null ? p.batteryWh + ' Wh' : '—'}</td><td class="num">${p.rangeKm != null ? p.rangeKm + ' km' : '—'}</td><td>${plain(p.launch)}</td><td class="acts"><button type="button" class="linkbtn" data-cmp="${esc(p.id)}">Compare${isUs(n) ? '' : ' with us'}</button><button type="button" class="linkbtn" data-edit="${esc(p.id)}">Edit</button></td></tr>`).join('')}</tbody></table></div><button type="button" class="imagebtn" data-add="${esc(n)}">Add a model</button>`;
+    // Select the Model or Category heading to sort A to Z; select it again for Z to A.
+    const rk = S.rgSort.k, rd = S.rgSort.d;
+    if (rk) ps.sort((a, c) => rd * String(a[rk] || '').localeCompare(String(c[rk] || ''), undefined, { numeric: true, sensitivity: 'base' }));
+    const rth = (key, label) => `<th aria-sort="${rk === key ? (rd > 0 ? 'ascending' : 'descending') : 'none'}"><button type="button" class="sortbtn" data-rsort="${key}" title="Sort ${label.toLowerCase()} A to Z">${label}${rk === key ? (rd > 0 ? ' ▲' : ' ▼') : ''}</button></th>`;
+    return `<div class="tbl-wrap"><table class="pm-table"><thead><tr><th class="mthumb-h">Picture</th>${rth('model', 'Model')}${rth('category', 'Category')}<th class="num">Price</th><th class="num">Weight</th><th class="num">Battery</th><th class="num">Range</th><th>Launch</th><th></th></tr></thead><tbody>${ps.map((p) => `<tr><td class="mthumb-c">${thumbBtn(p)}</td><td>${esc(p.model)}${discTag(p)}</td><td>${esc(p.category || '—')}</td><td class="num">${priceTxt(p)}</td><td class="num">${p.weightKg != null ? p.weightKg + ' kg' : '—'}</td><td class="num">${p.batteryWh != null ? p.batteryWh + ' Wh' : '—'}</td><td class="num">${p.rangeKm != null ? p.rangeKm + ' km' : '—'}</td><td>${plain(p.launch)}</td><td class="acts"><button type="button" class="linkbtn" data-cmp="${esc(p.id)}">Compare${isUs(n) ? '' : ' with us'}</button><button type="button" class="linkbtn" data-edit="${esc(p.id)}">Edit</button></td></tr>`).join('')}</tbody></table></div><button type="button" class="imagebtn" data-add="${esc(n)}">Add a model</button>`;
   }
   // A model's own picture as a small button: select it to add or change the picture.
   const thumbBtn = (p) => { const m = modelPic(p); return `<button type="button" class="mthumb${m ? '' : ' empty'}" data-mpic="${esc(p.id)}" title="${m ? 'Change' : 'Add'} the picture for ${esc(p.model)}" aria-label="${m ? 'Change' : 'Add'} picture: ${esc(p.model)}">${m ? `<img src="${esc(m)}" alt="" loading="lazy">` : '<span>+ Picture</span>'}</button>`; };
@@ -1318,6 +1333,7 @@
       const ct = t.closest('[data-ctry]'); if (ct) { S.mkC = S.mkC === ct.dataset.ctry ? '' : ct.dataset.ctry; return renderInsights(); }
       const tg = t.closest('[data-tgl]'); if (tg) { const b = tg.dataset.tgl; if (S.chHide.has(b)) S.chHide.delete(b); else S.chHide.add(b); return renderInsights(); }
       const ed = t.closest('[data-edit]'); if (ed) { const p = prodById(ed.dataset.edit); if (p) openModel(p); return; }
+      const rs = t.closest('[data-rsort]'); if (rs) { const k = rs.dataset.rsort; S.rgSort = { k, d: S.rgSort.k === k ? -S.rgSort.d : 1 }; return RENDER.profile(); }
       const ad = t.closest('[data-add]'); if (ad) return openModel(null, ad.dataset.add);
       const cm = t.closest('[data-cmp]'); if (cm) { addCmp(cm.dataset.cmp); if (($('.view.active') || {}).id !== 'matrix') go('matrix'); return; }
       const un = t.closest('[data-unc]'); if (un) { S.cmp.others = S.cmp.others.filter((x) => x !== un.dataset.unc); fixCmp(); return renderMatrix(); }
@@ -1404,12 +1420,10 @@
   $('#mpicFile').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; const p = prodById(S.mpic); if (!f || !p) return; if (!/^image\/(png|jpeg|webp)$/.test(f.type) || f.size > 12e6) return toast('Choose a PNG, JPEG or WebP picture under 12 MB'); editPicture(f, { title: `Picture: ${prodName(p)}`, onSave: (u) => saveModelPicture(p.id, u), onRemove: modelPic(p) ? () => removeModelPicture(p.id) : null }); };
   window.CIPM = { S, api, RENDER, mkView, mkNav, go, C, usName, openModel, brandNow, setBrandData, applyBrands, exportBrandsCsv, exportCsv, modelPic, pictureFromPage, autoPicture, refresh };
   modelDialog(); brandDialog(); addCompetitorTools(); wire();
-  // v3.13: who is signed in (edits are recorded under this name). Select it to sign out.
-  (async () => { try { const m = await api('GET', '/api/me'); S.me = m.name; const b = document.createElement('button'); b.type = 'button'; b.className = 'me-chip'; b.title = `Signed in as ${m.name}. Select to sign out.`; b.setAttribute('aria-label', b.title); b.textContent = (m.name || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase(); b.onclick = async () => { if (!confirm(`Signed in as ${m.name}. Sign out?`)) return; await fetch('/api/me', { method: 'POST' }); location.href = '/login'; }; const rw = $('.run-wrap'); if (rw) rw.parentNode.insertBefore(b, rw.nextSibling); } catch (e) { /* not important */ } })();
   S.cmp = Object.assign({ us: '', others: [] }, ld('cih_pm_cmp', {})); S.wide = ld('cih_pm_wide', true); S.fx = Object.assign({}, FX_DEFAULT, ld('cih_pm_fx', {})); S.mkMode = ld('cih_pm_mkmode', 'count') === 'gap' ? 'gap' : 'count'; S.howOpen = !!ld('cih_pm_howto', false);
   (async () => {
     try { const [b, p] = await Promise.all([api('GET', '/api/brands'), api('GET', '/api/products')]); setBrandData(b); S.products = p.products || []; }
     catch (err) { toast('Could not load saved profiles and models: ' + err.message); }
-    applyBrands(); const h = (location.hash || '').slice(1); go(['news', 'insights', 'social', 'matrix', 'collect', 'competitors', 'sources', 'history'].includes(h) ? h : 'news');
+    applyBrands(); go(savedScreen() || 'news');
   })();
 })();

@@ -26,7 +26,7 @@ test('any source can be removed, with the choice to keep, archive or delete its 
 });
 test('Watchlist is merged into Insights and News is the landing page',()=>{
   const p=fs.readFileSync('public/pm.js','utf8');
-  assert.ok(!p.includes("go('watch')")&&!p.includes("mkNav('watch'"));assert.match(p,/: 'news'\);/);
+  assert.ok(!p.includes("go('watch')")&&!p.includes("mkNav('watch'"));assert.match(p,/\|\| 'news'\);/);
   for(const t of ['insOverview','insPortfolio','insChart','insMarkets'])assert.ok(p.includes('function '+t));assert.ok(!p.includes('insActivity'));assert.ok(!/pareto/i.test(p));
 });
 
@@ -115,8 +115,16 @@ test('every browser script parses',async()=>{
 test('v3.13: history, alerts, backups, discontinued, street prices, battle card and named sign-in are wired in',()=>{
   const p=fs.readFileSync('public/pm.js','utf8'),c=fs.readFileSync('public/collect.js','utf8'),h=fs.readFileSync('public/tracker.html','utf8'),x=fs.readFileSync('proxy.js','utf8'),l=fs.readFileSync('public/login.html','utf8');
   assert.ok(h.includes('<script src="/history.js"></script>'));
-  for(const k of ['battleCard','bcRivals','bcPoints','histSvg','isDisc','chDisc','me-chip'])assert.ok(p.includes(k),k);
+  for(const k of ['battleCard','bcRivals','bcPoints','histSvg','isDisc','chDisc'])assert.ok(p.includes(k),k);
   for(const k of ['streetBlock','statusBlock','data-shopadd','data-gone',"via: 'collect'","via: 're-check'"])assert.ok(c.includes(k),k);
   assert.ok(x.includes("'/api/recheck'"),'the weekly re-check job gets past the sign-in check');assert.ok(x.includes('parts.length === 3'),'the middleware accepts named sessions');
-  assert.ok(l.includes('id=n'),'sign-in asks for a name');
+  assert.ok(!l.includes('id=n'),'sign-in asks for the password only');assert.ok(!p.includes('me-chip'),'no name chip or sign-out button in the header');
+});
+
+test('the open screen survives a refresh, Collect data sits between Competitors and Sources, and brand models sort A to Z',()=>{
+  const p=fs.readFileSync('public/pm.js','utf8'),c=fs.readFileSync('public/collect.js','utf8');
+  assert.ok(p.includes('rememberScreen(id)')&&p.includes('go(savedScreen()'),'the screen is saved in the address and restored on load');
+  assert.ok(p.includes('window.parent.history.replaceState'),'the page that holds the tracker remembers the screen too');
+  assert.ok(c.includes("mkNav('collect', 'Collect data', 'sources')"));
+  assert.ok(p.includes('data-rsort')&&p.includes('rgSort'),'model table headings sort');
 });

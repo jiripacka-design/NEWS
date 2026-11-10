@@ -11,7 +11,7 @@ test('sessions carry the name; old cookies still work; personal passwords when S
   assert.ok(A.valid(old));assert.equal(A.userOf(new Request('http://x',{headers:{cookie:`${A.COOKIE}=${old}`}})),'Someone');
   assert.ok(!A.valid(A.token('Anna').replace('.QW5u','.QW5v')),'the name cannot be changed without breaking the signature');
   assert.equal(A.check('Jiri','pw'),'Jiri');assert.equal(A.check('','pw'),'Someone');assert.equal(A.check('Jiri','no'),null);
-  process.env.SITE_USERS='Jiri:one, Anna:two';assert.equal(A.check('jiri','one'),'Jiri');assert.equal(A.check('Anna','one'),null);assert.equal(A.check('Bob','pw'),null,'the shared password no longer works');
+  process.env.SITE_USERS='Jiri:one, Anna:two';assert.equal(A.check('','one'),'Jiri');assert.equal(A.check('','two'),'Anna');assert.equal(A.check('','pw'),null);assert.equal(A.check('Bob','pw'),null,'the shared password no longer works');
   assert.equal((await (await login.GET()).json()).personal,true);delete process.env.SITE_USERS;
 });
 
