@@ -1,2 +1,0 @@
-export const maxDuration=60;
-import {runScan} from '../../../lib/scanner.js';import {sendAlerts} from '../../../lib/alerts.js';export async function GET(req){if(!process.env.CRON_SECRET||req.headers.get('authorization')!==`Bearer ${process.env.CRON_SECRET}`)return Response.json({error:'Unauthorized'},{status:401});try{const r=await runScan('scheduled');let alerts=null;try{alerts=await sendAlerts()}catch(e){alerts={error:e.message}}return Response.json({...r,alerts})}catch(e){return Response.json({error:e.message},{status:500})}}
