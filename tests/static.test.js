@@ -123,8 +123,20 @@ test('v3.13: history, alerts, backups, discontinued, street prices, battle card 
 
 test('the open screen survives a refresh, Collect data sits between Competitors and Sources, and brand models sort A to Z',()=>{
   const p=fs.readFileSync('public/pm.js','utf8'),c=fs.readFileSync('public/collect.js','utf8');
-  assert.ok(p.includes('rememberScreen(id)')&&p.includes('go(savedScreen()'),'the screen is saved in the address and restored on load');
+  assert.ok(p.includes('rememberScreen(id)')&&p.includes('go(START ||')&&p.includes("closest('.nav')"),'the screen is saved in the address and restored on load');
   assert.ok(p.includes('window.parent.history.replaceState'),'the page that holds the tracker remembers the screen too');
   assert.ok(c.includes("mkNav('collect', 'Collect data', 'sources')"));
   assert.ok(p.includes('data-rsort')&&p.includes('rgSort'),'model table headings sort');
+});
+
+test('v3.14 comparison, insights and visual additions are wired in',()=>{
+  const p=fs.readFileSync('public/pm.js','utf8'),h=fs.readFileSync('public/tracker.html','utf8');
+  for(const k of ['filterBar()','winLose()','sinceLast()','missBtn(','data-fill','cih_pm_views','cih_pm_visit','class="usband"','const SKEL'])assert.ok(p.includes(k),k);
+  assert.ok(p.includes("worst != null && worst !== best"),'weakest value in a row is marked');
+  assert.ok(p.includes("ap${hs ? ' hs' : ''}"),'sideways scrolling keeps the first model in view');
+  for(const k of ['.ap-c.worst','.ap.hs','.wl-card','.since-g','.skel{','prefers-reduced-motion'])assert.ok(h.includes(k),k);
+});
+test('Collect data defaults to one request for everything missing',()=>{
+  const c=fs.readFileSync('public/collect.js','utf8');
+  assert.ok(c.includes("scope: 'all'")&&c.includes('buildMasterBrief(Object.assign'));
 });

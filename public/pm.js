@@ -8,7 +8,7 @@
   if (!C || !E) { console.error('pm.js: tracker core or events.js missing'); return; }
   const { $, $$, esc, toast } = C;
   const REG = ['US', 'EMEA', 'APAC', 'CHINA'], CATS = ['Folding bike', 'Folding e-bike', 'E-bike', 'Cargo e-bike'], THR = ['High', 'Medium', 'Low'];
-  const S = { brands: {}, products: [], win: 30, cmp: { us: '', others: [] }, sort: { k: 'brand', d: 1 }, q: '', profile: '', digest: null, removed: [], arch: 'hide', showEmpty: false, diff: false, wide: true, insTab: 'markets', pfSort: { k: 'u', d: -1 }, rgSort: { k: '', d: 1 }, cview: 'ladder', ladSort: 'cheap', rankBy: 'weightKg', cscale: 'log', chHide: new Set(), chFind: '', mkSel: 'all', mkMode: 'count', mkC: '', mkAbsent: false, pickSlot: 0, pickQ: '' };
+  const S = { brands: {}, products: [], win: 30, cmp: { us: '', others: [] }, sort: { k: 'brand', d: 1 }, q: '', profile: '', digest: null, removed: [], arch: 'hide', showEmpty: false, diff: false, wide: true, insTab: 'markets', pfSort: { k: 'u', d: -1 }, rgSort: { k: '', d: 1 }, mf: { cat: '', maxP: '', maxW: '', minB: '', el: false }, views: [], mfView: '', cview: 'ladder', ladSort: 'cheap', rankBy: 'weightKg', cscale: 'log', chHide: new Set(), chFind: '', mkSel: 'all', mkMode: 'count', mkC: '', mkAbsent: false, pickSlot: 0, pickQ: '' };
   const slug = (t) => String(t).toLowerCase().replace(/[^a-z]+/g, '-').replace(/^-|-$/g, '');
   const sv = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } };
   const ld = (k, f) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? f : v; } catch (e) { return f; } };
@@ -112,7 +112,8 @@
   const statusCls = { Accelerating: 'up', 'New activity': 'up', Slowing: 'down', Steady: 'flat', 'No activity': 'none' };
   const link = (u, t) => (/^https?:\/\//.test(u || '') ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(t || u.replace(/^https?:\/\/(www\.)?/, '').slice(0, 40))}</a>` : '—');
   const gapChips = (names) => names.length ? names.map((b) => `<button type="button" class="chip gap-chip" data-open="${esc(b)}">${esc(b)}</button>`).join('') : '<em class="muted">None. Every brand has this.</em>';
-  function mkView(id, html) { const s = document.createElement('section'); s.className = 'view'; s.id = id; s.innerHTML = html; $('main').appendChild(s); return s; }
+  const SKEL = '<div class="skel-wrap" aria-busy="true" aria-label="Loading"><div class="skel skel-h"></div><div class="skel skel-t"></div><div class="skel-row"><div class="skel skel-c"></div><div class="skel skel-c"></div><div class="skel skel-c"></div></div><div class="skel skel-p"></div></div>';
+  function mkView(id, html) { const s = document.createElement('section'); s.className = 'view'; s.id = id; s.innerHTML = html || SKEL; $('main').appendChild(s); return s; }
   function mkNav(id, label, before) {
     const b = document.createElement('button'); b.className = 'nav'; b.dataset.v = id; b.textContent = label; b.onclick = () => go(id);
     const side = $('.side'), ref = before ? side.querySelector(`.nav[data-v="${before}"]`) : null;
@@ -130,6 +131,10 @@
     try { history.replaceState(null, '', '#' + id); } catch (e) { /* ignore */ }
     try { if (window.parent !== window) window.parent.history.replaceState(null, '', '#' + id); } catch (e) { /* ignore */ }
   }
+  // Read the saved screen straight away, before anything can overwrite it.
+  const START = savedScreen();
+  // The built-in menu tabs switch screens without calling go(), so record every menu click here.
+  document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('.nav'); if (b && b.dataset.v) rememberScreen(b.dataset.v); }, true);
   function go(id) {
     C.nav(id); rememberScreen(id);
     if (id === 'profile') $$('.nav').forEach((x) => x.classList.toggle('active', x.dataset.v === 'competitors'));
@@ -172,6 +177,26 @@
   }
   RENDER.insights = renderInsights;
 
+  // Price moves, new models and new-market news since the last visit (a visit ends after 4 hours away).
+  function sinceLast() {
+    if (!S.prices) loadPrices();
+    const base = S.visitBase, moves = [], fresh = [];
+    S.products.filter((p) => !isDisc(p)).forEach((p) => {
+      const l = priceSeries(p).list;
+      for (let i = 1; i < l.length; i++) if (l[i].t > base && l[i].v !== l[i - 1].v) moves.push({ p, from: l[i - 1].v, to: l[i].v });
+      if (Date.parse(p.createdAt || '') > base) fresh.push(p);
+    });
+    const entries = feedItems().filter((n) => evtOf(n) === 'Market entry' && Date.parse(n.date) > base);
+    const when = new Date(base).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }), total = moves.length + fresh.length + entries.length;
+    const tile = (n, label) => `<div class="since-t${n ? '' : ' zero'}"><strong>${n}</strong><span>${label}</span></div>`;
+    const us = usName();
+    const mv = moves.sort((a, b) => (isUs(b.p.brand) - isUs(a.p.brand)) || Math.abs(b.to - b.from) - Math.abs(a.to - a.from)).slice(0, 6).map((m) => { const d = m.to - m.from; return `<li><strong>${esc(m.p.brand)} ${esc(m.p.model)}</strong> <span class="${d < 0 ? 'pc-down' : 'pc-up'}">${gbp(m.from)} → ${gbp(m.to)} (${d > 0 ? '+' : '−'}${gbp(Math.abs(d))})</span></li>`; }).join('');
+    const nw = fresh.slice(0, 6).map((p) => `<li><strong>${esc(p.brand)} ${esc(p.model)}</strong> <span class="muted">${priceOf(p).v != null ? priceTxt(p) : 'no price yet'}</span></li>`).join('');
+    const en = entries.slice(0, 6).map((n) => `<li><strong>${esc(n.brand)}</strong> <span class="muted">${esc(String(n.title).slice(0, 110))}</span></li>`).join('');
+    return `<div class="panel since"><div class="chart-head"><div><h3>Since your last visit</h3><div class="sub">${S.visitFirst ? 'First visit on this device: showing the last 7 days.' : `Changes since ${when}.`} Price moves are those recorded here; us: ${esc(us)}.</div></div></div>
+      <div class="since-g">${tile(moves.length, 'price moves')}${tile(fresh.length, 'new models')}${tile(entries.length, 'new-market entries')}</div>
+      ${total ? `<div class="since-l">${mv ? `<div><h4>Price moves</h4><ul>${mv}</ul></div>` : ''}${nw ? `<div><h4>New models</h4><ul>${nw}</ul></div>` : ''}${en ? `<div><h4>New markets</h4><ul>${en}</ul></div>` : ''}</div>` : `<div class="sub">Nothing new since then. Prices are re-checked weekly; new models appear when they are added in Collect data.</div>`}</div>`;
+  }
   function insOverview() {
     const now = Date.now(), us = usName(), W = S.win, items = feedItems(), mom = {};
     E.momentum(items, C.brands, now, 30, 12).forEach((m) => { mom[m.brand] = m; });
@@ -179,7 +204,7 @@
     const d = E.buildDigest(items.map((n) => ({ date: n.date, brand: n.brand, title: n.title, summary: n.summary, url: n.url, evt: evtOf(n) })), { us, watch: watched, threat: Object.fromEntries(watched.map((b) => [b, { level: bm(b).threat || '' }])), brands: C.brands }, now, 7);
     const ml = E.momentum(items, C.brands, now, W, 12).filter((m) => isUs(m.brand) || m.cur || m.prev).sort((a, b) => (isUs(b.brand) - isUs(a.brand)) || b.delta - a.delta || b.cur - a.cur);
     const quiet = C.brands.length - ml.filter((m) => !isUs(m.brand) || m.cur || m.prev).length;
-    return `<div class="panel"><div class="chart-head"><div><h3>Brands to watch</h3><div class="sub">Us first, then the competitors you pinned.</div></div></div>
+    return `${sinceLast()}<div class="panel"><div class="chart-head"><div><h3>Brands to watch</h3><div class="sub">Us first, then the competitors you pinned.</div></div></div>
       ${gloss([['Threat', 'How much this brand could hurt our sales. You set it on the profile.'], ['Trend', 'News items in the last 30 days against the 30 days before.'], ['Line', 'Items per week over the last 12 weeks.']])}
       ${watched.length ? '' : '<div class="pm-empty"><strong>Nothing pinned yet</strong><span>Pin the 5 to 8 competitors that matter most. They appear here with a threat level and a one-line reason, and become the quick filters in News.</span><button type="button" class="primary" id="pinFirst">Pin brands</button></div>'}
       <div class="wgrid">${[us, ...watched].map((b) => wcard(b, mom)).join('')}</div></div>
@@ -244,7 +269,7 @@
   // Zoom presets in map units (the map is 960 x 481); each keeps the 2:1 shape so the page does not change height when you zoom.
   const MK_ZOOM = [['world', 'World', ''], ['europe', 'Europe', '405 95 230 115'], ['americas', 'Americas', '60 70 400 200'], ['apac', 'Asia Pacific', '640 150 300 150']];
   function insMarkets() {
-    if (!window.CIWorld) { withWorld(() => { if (S.insTab === 'markets') renderInsights(); }); return '<div class="panel mk-loading"><div class="source-empty">Loading the map…</div></div>'; }
+    if (!window.CIWorld) { withWorld(() => { if (S.insTab === 'markets') renderInsights(); }); return '<div class="panel mk-loading">' + SKEL + '</div>'; }
     const W = window.CIWorld, us = usName(), pick = mkBrands(), mine = placeCountries(countriesOf(us)), single = pick.length === 1;
     const by = new Map(); pick.forEach((b) => { placeCountries(countriesOf(b)).hit.forEach((t, key) => { if (!by.has(key)) by.set(key, { t, brands: [] }); by.get(key).brands.push(b); }); });
     const keys = new Set([...by.keys(), ...mine.hit.keys()]), nameOf = (key) => (by.get(key) || { t: mine.hit.get(key) }).t.n;
@@ -396,6 +421,52 @@
     if (slot === 0) S.cmp.us = id; else if (slot - 1 < o.length) o[slot - 1] = id; else o.push(id);
     S.cmp.others = [...new Set(o)]; fixCmp(); $('#pmPick').close(); renderMatrix();
   }
+  // A missing value is an action, not a dead end: it opens Collect data for that model.
+  const missBtn = (p, label) => `<button type="button" class="miss" data-fill="${esc(p.id)}" title="Find ${esc(String(label).toLowerCase())} for ${esc(p.model)} in Collect data">+ Add</button>`;
+  const isEl = (p) => /e-bike|electric/i.test(p.category || '') || !!(p.batteryWh || p.motor);
+  const MF0 = () => ({ cat: '', maxP: '', maxW: '', minB: '', el: false });
+  const mfOn = () => !!(S.mf.cat || S.mf.maxP || S.mf.maxW || S.mf.minB || S.mf.el);
+  function mfPass(p) {
+    const f = S.mf, pr = priceOf(p).v;
+    if (f.cat && p.category !== f.cat) return false;
+    if (f.el && !isEl(p)) return false;
+    if (f.maxP !== '' && (pr == null || pr > +f.maxP)) return false;
+    if (f.maxW !== '' && (p.weightKg == null || p.weightKg > +f.maxW)) return false;
+    if (f.minB !== '' && (p.batteryWh == null || p.batteryWh < +f.minB)) return false;
+    return true;
+  }
+  function filterBar() {
+    const cats = [...new Set(S.products.map((p) => p.category).filter(Boolean))].sort(), f = S.mf, n = S.products.filter(mfPass).length;
+    const num = (id, label, v, ph) => `<label class="ctl mf-n"><span>${label}</span><input class="field" id="${id}" type="number" min="0" step="any" inputmode="decimal" placeholder="${ph}" value="${esc(v)}"></label>`;
+    return `<div class="mf"><div class="cl-row">
+      <label class="ctl"><span>Category</span><select class="field" id="mfCat"><option value="">All</option>${cats.map((c) => `<option${c === f.cat ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+      ${num('mfMaxP', 'Up to £', f.maxP, 'any')}${num('mfMaxW', 'Up to kg', f.maxW, 'any')}${num('mfMinB', 'Battery from Wh', f.minB, 'any')}
+      <label class="chk mf-el"><input type="checkbox" id="mfEl"${f.el ? ' checked' : ''}> Electric only</label>
+      <label class="ctl"><span>Saved views</span><select class="field" id="mfView"><option value="">${S.views.length ? 'Choose a view…' : 'None saved yet'}</option>${S.views.map((v, i) => `<option value="${i}"${String(i) === S.mfView ? ' selected' : ''}>${esc(v.name)}</option>`).join('')}</select></label>
+      <button type="button" class="imagebtn" id="mfSave"${mfOn() ? '' : ' disabled'} title="Save these filters under a name">Save view</button>${S.mfView !== '' && S.views[+S.mfView] ? '<button type="button" class="linkbtn" id="mfDel">Delete view</button>' : ''}${mfOn() ? '<button type="button" class="linkbtn" id="mfClear">Clear filters</button>' : ''}
+      </div><div class="sub mf-sum" id="mfSum">${mfOn() ? `${n} of ${S.products.length} models match. ` : ''}${mfOn() && n ? `<button type="button" class="linkbtn" id="mfCmp">Compare the first ${Math.min(n, MAXCMP)}</button>` : ''}</div></div>`;
+  }
+  const WL = { priceGBP: ['cheaper', 'dearer'], weightKg: ['lighter', 'heavier'], vol: ['smaller folded', 'bigger folded'], batteryWh: ['bigger battery', 'smaller battery'], rangeKm: ['longer range', 'shorter range'] };
+  // For each competitor in the comparison: the numeric specs where the first model wins, where it trails, and what could not be compared.
+  function winLose() {
+    const us = prodById(S.cmp.us), others = S.cmp.others.map(prodById).filter(Boolean);
+    if (!us || !others.length) return '';
+    const rows = ROWS.filter((r) => r.dir && WL[r.k]);
+    const card = (p) => {
+      const win = [], lose = [], gap = [];
+      rows.forEach((r) => {
+        const a = r.get(us), b = r.get(p); if (typeof a !== 'number' || typeof b !== 'number') { gap.push(r.label.toLowerCase()); return; }
+        const d = Math.round((a - b) * 100) / 100; if (!d) return;
+        const good = r.dir === 'low' ? d < 0 : d > 0, txt = `${r.fmt(Math.abs(d))} ${WL[r.k][good ? 0 : 1]}`;
+        (good ? win : lose).push(txt);
+      });
+      const list = (a, cls, empty) => (a.length ? `<ul class="wl-l ${cls}">${a.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : `<div class="muted wl-e">${empty}</div>`);
+      return `<div class="wl-card"><div class="wl-h"><strong>${esc(p.brand)} ${esc(p.model)}</strong><span class="muted">${priceTxt(p)}</span></div>
+        <div class="wl-cols"><div><div class="wl-t win">We win on</div>${list(win, 'win', 'Nothing we can prove yet')}</div><div><div class="wl-t lose">They win on</div>${list(lose, 'lose', 'Nothing')}</div></div>
+        ${gap.length ? `<div class="wl-g muted">Not compared (no figure): ${esc([...new Set(gap)].join(', '))} <button type="button" class="linkbtn" data-fill="${esc(gap.length && (rows.some((r) => typeof r.get(p) !== 'number') ? p.id : us.id))}">Add figures</button></div>` : ''}</div>`;
+    };
+    return `<div class="panel"><div class="chart-head"><div><h3>Where we win and lose</h3><div class="sub">${esc(prodName(us))} against each model in the comparison. Only specs where both models have a number are counted.</div></div></div><div class="wl-grid">${others.map(card).join('')}</div></div>`;
+  }
   function matrixTable() {
     const ids = [S.cmp.us, ...S.cmp.others], cols = ids.map(prodById).filter(Boolean), us = prodById(S.cmp.us);
     if (!S.products.length) return '<div class="pm-empty"><strong>No models to compare yet</strong><span>Select Load researched data to start with 13 models, or add your own. Specs and prices cannot be scraped reliably, so they are entered here (or imported from a CSV) and saved on the server.</span><button type="button" class="primary" id="loadStarter2">Load researched data</button></div>';
@@ -408,7 +479,7 @@
       if (!S.showEmpty && !has.length) { hidden++; return; }
       if (S.diff && has.length === cols.length && cols.length > 1 && new Set(has.map((v) => String(v).trim().toLowerCase())).size === 1) { hidden++; return; }
       if (!secOpen) { out += `<section class="ap-sec"><h3>${esc(sec)}</h3>`; secOpen = true; }
-      const nums = vals.filter((v) => typeof v === 'number'), best = r.dir && nums.length > 1 ? (r.dir === 'low' ? Math.min(...nums) : Math.max(...nums)) : null, uv = us ? r.get(us) : null;
+      const nums = vals.filter((v) => typeof v === 'number'), best = r.dir && nums.length > 1 ? (r.dir === 'low' ? Math.min(...nums) : Math.max(...nums)) : null, worst = r.dir && nums.length > 1 ? (r.dir === 'low' ? Math.max(...nums) : Math.min(...nums)) : null, uv = us ? r.get(us) : null;
       out += `<div class="ap-row"><div class="ap-l">${r.label}</div><div class="ap-vals" style="${style}">${slots.map((p, i) => {
         if (!p) return '<div class="ap-c"></div>';
         const v = vals[i], ok = v != null && v !== ''; let delta = '';
@@ -416,23 +487,26 @@
           const d = Math.round((v - uv) * 100) / 100;
           if (d !== 0) delta = `<small class="dl${(r.dir === 'low' ? d < 0 : d > 0) ? ' adv' : ''}" title="Compared with ${esc(prodName(us))}">${d > 0 ? '+' : '−'}${r.fmt(Math.abs(d))} vs ${isUs(us.brand) ? 'us' : 'first'}</small>`;
         }
-        return `<div class="ap-c${isUs(p.brand) ? ' is-us' : ''}${best != null && v === best ? ' best' : ''}"><div class="ap-v">${ok ? (r.html ? r.html(v) : esc((r.pre ? r.pre(p) : '') + r.fmt(v))) : '<span class="muted">—</span>'}</div>${r.note && r.note(p) ? `<small class="muted">${esc(r.note(p))}</small>` : ''}${delta}</div>`;
+        return `<div class="ap-c${isUs(p.brand) ? ' is-us' : ''}${best != null && v === best ? ' best' : ''}${worst != null && worst !== best && v === worst ? ' worst' : ''}"><div class="ap-v">${ok ? (r.html ? r.html(v) : esc((r.pre ? r.pre(p) : '') + r.fmt(v))) : (r.k && !['notes', 'src', 'lastVerified'].includes(r.k) ? missBtn(p, r.label) : '<span class="muted">—</span>')}</div>${r.note && r.note(p) ? `<small class="muted">${esc(r.note(p))}</small>` : ''}${delta}</div>`;
       }).join('')}</div></div>`;
     });
     flush();
-    return `<div class="ap" style="${style}"><div class="ap-head"><div class="ap-cards" style="${style}">${slots.map((p, i) => headCard(p, i)).join('')}</div></div>${out || '<div class="source-empty">Nothing to show with these settings.</div>'}</div>
-      <div class="sub ap-foot"><label class="chk"><input type="checkbox" id="showDiff"${S.diff ? ' checked' : ''}> Show only differences</label> &nbsp; <label class="chk"><input type="checkbox" id="showEmpty"${S.showEmpty ? ' checked' : ''}> Show rows with no data</label>${hidden ? ` &nbsp; ${hidden} row${hidden === 1 ? '' : 's'} hidden` : ''} &nbsp; <span class="legend-best"></span> best value in the row. Orange means that model is ahead of the first column on that spec.</div>`;
+    const hs = n >= 5 || (window.innerWidth || 1200) < 1000;
+    return `<div class="ap${hs ? ' hs' : ''}" style="${style}"><div class="ap-head"><div class="ap-cards" style="${style}">${slots.map((p, i) => headCard(p, i)).join('')}</div></div>${out || '<div class="source-empty">Nothing to show with these settings.</div>'}</div>
+      <div class="sub ap-foot"><label class="chk"><input type="checkbox" id="showDiff"${S.diff ? ' checked' : ''}> Show only differences</label> &nbsp; <label class="chk"><input type="checkbox" id="showEmpty"${S.showEmpty ? ' checked' : ''}> Show rows with no data</label>${hidden ? ` &nbsp; ${hidden} row${hidden === 1 ? '' : 's'} hidden` : ''} &nbsp; <span class="legend-best"></span> best value in the row, <span class="legend-worst"></span> weakest. Orange means that model is ahead of the first column on that spec.${hs ? ' Scroll sideways: the first model stays in view.' : ''}</div>`;
   }
+  // Re-draw only the filter bar and the table, so typing in a filter box is not interrupted.
+  function refreshModels() { const m = $('#mdlBox'); if (!m) return renderMatrix(); const bar = $('.mf'); if (bar) bar.outerHTML = filterBar(); m.innerHTML = modelsTable(); }
   function modelsTable() {
     const q = S.q.toLowerCase(), k = S.sort.k, d = S.sort.d;
-    const list = S.products.filter((p) => !q || `${p.brand} ${p.model} ${p.category}`.toLowerCase().includes(q)).sort((a, b) => {
+    const list = S.products.filter((p) => mfPass(p) && (!q || `${p.brand} ${p.model} ${p.category}`.toLowerCase().includes(q))).sort((a, b) => {
       const x = k === 'vol' ? vol(a) : k === 'fill' ? fillPct(a) : k === 'priceGBP' ? priceOf(a).v : a[k], y = k === 'vol' ? vol(b) : k === 'fill' ? fillPct(b) : k === 'priceGBP' ? priceOf(b).v : b[k];
       if (x == null || x === '') return y == null || y === '' ? 0 : 1; if (y == null || y === '') return -1;
       return (typeof x === 'number' ? x - y : String(x).localeCompare(String(y))) * d || (isUs(b.brand) - isUs(a.brand));
     });
     const th = (key, label, cls) => `<th class="${cls || ''}"><button type="button" class="sortbtn" data-sort="${key}">${label}${S.sort.k === key ? (S.sort.d > 0 ? ' ▲' : ' ▼') : ''}</button></th>`;
     return `<table class="pm-table"><thead><tr>${th('brand', 'Brand')}${th('model', 'Model')}${th('category', 'Category')}${th('priceGBP', 'Price', 'num')}${th('weightKg', 'Weight', 'num')}${th('vol', 'Folded', 'num')}${th('batteryWh', 'Battery', 'num')}${th('rangeKm', 'Range', 'num')}${th('launch', 'Launch')}${th('lastVerified', 'Verified')}${th('fill', 'Specs', 'num')}<th></th></tr></thead><tbody>
-      ${list.map((p) => `<tr class="${isUs(p.brand) ? 'is-us' : ''}"><td><button type="button" class="linkbtn" data-open="${esc(p.brand)}">${esc(p.brand)}</button></td><td>${esc(p.model)}${discTag(p)}</td><td>${esc(p.category || '—')}</td><td class="num">${priceTxt(p)}</td><td class="num">${p.weightKg != null ? p.weightKg + ' kg' : '—'}</td><td class="num">${vol(p) != null ? Math.round(vol(p)) + ' L' : '—'}</td><td class="num">${p.batteryWh != null ? p.batteryWh + ' Wh' : '—'}</td><td class="num">${p.rangeKm != null ? p.rangeKm + ' km' : '—'}</td><td>${plain(p.launch)}</td><td>${p.lastVerified ? esc(p.lastVerified) : '—'}</td><td class="num">${fillPct(p)}%</td><td class="acts"><button type="button" class="linkbtn" data-cmp="${esc(p.id)}">Compare</button><button type="button" class="linkbtn" data-edit="${esc(p.id)}">Edit</button></td></tr>`).join('') || '<tr><td colspan="11" class="muted">No models match.</td></tr>'}
+      ${list.map((p) => `<tr class="${isUs(p.brand) ? 'is-us' : ''}"><td><button type="button" class="linkbtn" data-open="${esc(p.brand)}">${esc(p.brand)}</button></td><td>${esc(p.model)}${discTag(p)}</td><td>${esc(p.category || '—')}</td><td class="num">${priceOf(p).v != null ? priceTxt(p) : missBtn(p, 'price')}</td><td class="num">${p.weightKg != null ? p.weightKg + ' kg' : missBtn(p, 'weight')}</td><td class="num">${vol(p) != null ? Math.round(vol(p)) + ' L' : '—'}</td><td class="num">${p.batteryWh != null ? p.batteryWh + ' Wh' : '—'}</td><td class="num">${p.rangeKm != null ? p.rangeKm + ' km' : '—'}</td><td>${plain(p.launch)}</td><td>${p.lastVerified ? esc(p.lastVerified) : '—'}</td><td class="num">${fillPct(p)}%</td><td class="acts"><button type="button" class="linkbtn" data-cmp="${esc(p.id)}">Compare</button><button type="button" class="linkbtn" data-edit="${esc(p.id)}">Edit</button></td></tr>`).join('') || '<tr><td colspan="11" class="muted">No models match.</td></tr>'}
       </tbody></table>`;
   }
   /* =====================  CHARTS  ===================== */
@@ -531,13 +605,25 @@
       labs = lab.map((l) => `<text class="blab${l.s.st.us ? ' us' : ''}" x="${W - R + 14}" y="${(l.ly + 4).toFixed(1)}" fill="${l.s.st.us ? '#fff' : '#e6e6e6'}">${esc(l.s.b)}</text>`).join('');
     }
     const body = series.map((s) => `<g class="ser${s.st.us ? ' us' : ''}">${V.lines && s.list.length > 1 ? `${s.st.us ? `<polyline points="${s.list.map((o) => `${X(o[V.x]).toFixed(1)},${Y(o[V.y]).toFixed(1)}`).join(' ')}" stroke="#fff" stroke-width="6" fill="none" opacity=".9"/>` : ''}<polyline points="${s.list.map((o) => `${X(o[V.x]).toFixed(1)},${Y(o[V.y]).toFixed(1)}`).join(' ')}" stroke="${s.st.c}" stroke-width="${s.st.us ? 3.4 : 1.8}" stroke-dasharray="${s.st.dash}" fill="none"/>` : ''}${s.list.map((o) => dotG(o, X(o[V.x]), Y(o[V.y]), rad ? rad(o[V.size]) : s.st.us ? 7 : 5, s.st, sel.has(o.p.id))).join('')}${V.lines ? '' : s.list.map((o) => `<text class="dlab" x="${(X(o[V.x]) + (rad ? rad(o[V.size]) : 6) + 5).toFixed(1)}" y="${(Y(o[V.y]) + 4).toFixed(1)}">${esc(o.p.model.length > 24 ? o.p.model.slice(0, 23) + '…' : o.p.model)}</text>`).join('')}</g>`).join('');
+    // Price positioning: shade our own price range, tint crowded areas, and say in words who sits where.
+    let zones = '', summary = '';
+    const usP = pts.filter((o) => isUs(o.p.brand)), rivals = pts.filter((o) => !isUs(o.p.brand));
+    if (V.x === 'price' && !V.brand && !V.lines && usP.length && rivals.length) {
+      const lo = Math.min(...usP.map((o) => o.price)), hi = Math.max(...usP.map((o) => o.price)), cols = 8, rowsN = 5, cnt = {};
+      pts.forEach((o) => { const cx = Math.min(cols - 1, Math.max(0, Math.floor((X(o.price) - L) / (W - L - R) * cols))), cy = Math.min(rowsN - 1, Math.max(0, Math.floor((H - B - Y(o[V.y])) / (H - T - B) * rowsN))); const k = cx + ',' + cy; cnt[k] = (cnt[k] || 0) + 1; });
+      zones = `<rect class="usband" x="${X(lo).toFixed(1)}" y="${T}" width="${Math.max(6, X(hi) - X(lo)).toFixed(1)}" height="${H - B - T}"/>` + Object.keys(cnt).filter((k) => cnt[k] >= 3).map((k) => { const [cx, cy] = k.split(',').map(Number), w = (W - L - R) / cols, h = (H - T - B) / rowsN; return `<rect class="crowd" x="${(L + cx * w).toFixed(1)}" y="${(H - B - (cy + 1) * h).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}"><title>${cnt[k]} models</title></rect>`; }).join('');
+      const inBand = rivals.filter((o) => o.price >= lo && o.price <= hi), lowBetter = V.y !== 'batteryWh', bestUs = lowBetter ? Math.min(...usP.map((o) => o[V.y])) : Math.max(...usP.map((o) => o[V.y]));
+      const beat = inBand.filter((o) => (lowBetter ? o[V.y] < bestUs : o[V.y] > bestUs)), cheaper = rivals.filter((o) => o.price < lo).length;
+      const word = V.y === 'weightKg' ? 'lighter' : V.y === 'vol' ? 'smaller when folded' : 'a bigger battery';
+      summary = `<div class="pp-sum"><span><i class="pp-b"></i> Our price range ${gbp(lo)}${hi > lo ? ' to ' + gbp(hi) : ''}</span><span><i class="pp-c"></i> Crowded: 3 or more models close together</span><p>${inBand.length ? `${inBand.length} rival model${inBand.length === 1 ? '' : 's'} sit${inBand.length === 1 ? 's' : ''} in our price range; ${beat.length ? `${beat.length} ${beat.length === 1 ? 'is' : 'are'} ${word} than our best.` : `none is ${word} than our best.`}` : 'No rival model sits inside our price range: that space is ours.'} ${cheaper} rival model${cheaper === 1 ? ' is' : 's are'} cheaper than our cheapest.</p></div>`;
+    }
     return `<svg class="chart2" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(V.label)}">
-      ${yt.map((v) => `<line class="gl" x1="${L}" x2="${W - R}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"/><text class="al" x="${L - 10}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${esc(ay.tick ? ay.tick(v) : ay.fmt(v).replace(/ (kg|L|Wh)$/, ''))}</text>`).join('')}
+      ${zones}${yt.map((v) => `<line class="gl" x1="${L}" x2="${W - R}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"/><text class="al" x="${L - 10}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${esc(ay.tick ? ay.tick(v) : ay.fmt(v).replace(/ (kg|L|Wh)$/, ''))}</text>`).join('')}
       ${xa.t.map((v) => `<line class="tk" x1="${X(v).toFixed(1)}" x2="${X(v).toFixed(1)}" y1="${H - B}" y2="${H - B + 5}"/><text class="al" x="${X(v).toFixed(1)}" y="${H - B + 22}" text-anchor="middle">${esc(ax.tick ? ax.tick(v) : String(v))}</text>`).join('')}
       <line class="ax" x1="${L}" x2="${W - R}" y1="${H - B}" y2="${H - B}"/>
       <text class="at" x="${L}" y="${T - 8}">${esc(ay.label)}</text>
       <text class="at" x="${(L + W - R) / 2}" y="${H - 12}" text-anchor="middle">${esc(ax.label)}${logx ? ', log scale' : ''}</text>
-      ${lead}${body}${labs}</svg>`;
+      ${lead}${body}${labs}</svg>${summary}`;
   }
   function ladderSvg(D) {
     const pts = D.all.filter((o) => !S.chHide.has(o.p.brand)); if (!pts.length) return chartEmpty;
@@ -580,7 +666,7 @@
     return { series, total: series.reduce((x, s) => x + s.v.reduce((a, c) => a + c, 0), 0), weeks: 12, now };
   }
   /* ----- price history (v3.13) ----- */
-  async function loadPrices(force) { if (S.pricesLoading || (S.prices && !force && Date.now() - S.pricesAt < 60000)) return; S.pricesLoading = true; const had = JSON.stringify(S.prices || null); try { S.prices = await api('GET', '/api/prices'); } catch (e) { S.prices = S.prices || { series: {} }; } S.pricesAt = Date.now(); S.pricesLoading = false; if (had === JSON.stringify(S.prices)) return; if (S.insTab === 'chart' && S.cview === 'hist') renderInsights(); }
+  async function loadPrices(force) { if (S.pricesLoading || (S.prices && !force && Date.now() - S.pricesAt < 60000)) return; S.pricesLoading = true; const had = JSON.stringify(S.prices || null); try { S.prices = await api('GET', '/api/prices'); } catch (e) { S.prices = S.prices || { series: {} }; } S.pricesAt = Date.now(); S.pricesLoading = false; if (had === JSON.stringify(S.prices)) return; if ((S.insTab === 'chart' && S.cview === 'hist') || S.insTab === 'overview') renderInsights(); }
   // A model's list-price steps and street prices. Models priced before history began get a starting point on the date they were added or last verified.
   function priceSeries(p) {
     const raw = ((S.prices || {}).series || {})[p.id] || [], list = raw.filter((x) => x.field === 'priceGBP').map((x) => ({ t: Date.parse(x.at), v: x.value, by: x.by, via: x.via }));
@@ -694,7 +780,8 @@
     $('#matrix').innerHTML = `<div class="head"><div><h2>Product Comparison</h2><div class="sub">Compare up to ${MAXCMP} models side by side. Select + to add a model, × to take one out. Us: <strong>${esc(usName())}</strong>.</div></div>
       <div class="source-actions"><button type="button" class="primary" id="addModel">Add model</button><button type="button" class="imagebtn" id="loadStarter">Load researched data</button><button type="button" class="imagebtn" data-go="collect" title="Import specs from a spreadsheet, pasted text or an AI answer, or download a spreadsheet to fill in">Import / export data</button><button type="button" class="imagebtn" id="bcOpen" title="A one-page sheet for the shop floor: our model against its closest rivals, where we win, objections to expect, and what we know about them">Battle card</button><button type="button" class="imagebtn" id="toggleWide" title="Use the whole width of the screen for the comparison">${S.wide ? 'Standard width' : 'Full width'}</button><input type="file" id="csvFile" accept=".csv,text/csv" hidden></div></div>
       <div class="panel ap-panel">${matrixTable()}</div>
-      <div class="panel"><div class="chart-head"><div><h3>All models</h3><div class="sub">${S.products.length} saved. Select Export CSV to get a spreadsheet to fill in (brands with no models appear as empty rows), then Import CSV.</div></div><input class="field" id="mdlSearch" placeholder="Filter models" value="${esc(S.q)}"></div><div class="tbl-wrap" id="mdlBox">${modelsTable()}</div>
+      ${winLose()}
+      <div class="panel"><div class="chart-head"><div><h3>All models</h3><div class="sub">${S.products.length} saved. Select Export CSV to get a spreadsheet to fill in (brands with no models appear as empty rows), then Import CSV.</div></div><input class="field" id="mdlSearch" placeholder="Filter models" value="${esc(S.q)}"></div>${filterBar()}<div class="tbl-wrap" id="mdlBox">${modelsTable()}</div>
         <details class="gaps"><summary>Brands with no models yet (${noModels.length})</summary><div class="chips">${noModels.length ? noModels.map((b) => `<button type="button" class="chip gap-chip" data-add="${esc(b)}">${esc(b)}</button>`).join('') : '<em class="muted">None.</em>'}</div></details></div>`;
   }
   RENDER.matrix = renderMatrix;
@@ -1337,6 +1424,11 @@
       const ad = t.closest('[data-add]'); if (ad) return openModel(null, ad.dataset.add);
       const cm = t.closest('[data-cmp]'); if (cm) { addCmp(cm.dataset.cmp); if (($('.view.active') || {}).id !== 'matrix') go('matrix'); return; }
       const un = t.closest('[data-unc]'); if (un) { S.cmp.others = S.cmp.others.filter((x) => x !== un.dataset.unc); fixCmp(); return renderMatrix(); }
+      const fl = t.closest('[data-fill]'); if (fl) { const p = prodById(fl.dataset.fill); if (p && window.CIPM.collectOpen) window.CIPM.collectOpen(p.brand, p.model); return; }
+      if (t.id === 'mfClear') { S.mf = MF0(); S.mfView = ''; return refreshModels(); }
+      if (t.id === 'mfSave') { const name = (prompt('Name this view, for example “Electric folders under £3k”') || '').trim().slice(0, 60); if (!name) return; const i = S.views.findIndex((v) => v.name.toLowerCase() === name.toLowerCase()); const v = { name, f: Object.assign({}, S.mf) }; if (i >= 0) S.views[i] = v; else S.views.push(v); sv('cih_pm_views', S.views); S.mfView = String(i >= 0 ? i : S.views.length - 1); toast(`View “${name}” saved`); return refreshModels(); }
+      if (t.id === 'mfDel') { const v = S.views[+S.mfView]; if (!v || !confirm(`Delete the view “${v.name}”?`)) return; S.views.splice(+S.mfView, 1); sv('cih_pm_views', S.views); S.mfView = ''; return refreshModels(); }
+      if (t.id === 'mfCmp') { const ids = S.products.filter(mfPass).sort((a, b) => (isUs(b.brand) - isUs(a.brand)) || (priceOf(a).v == null) - (priceOf(b).v == null) || priceOf(a).v - priceOf(b).v).map((p) => p.id).slice(0, MAXCMP); if (!ids.length) return; S.cmp.us = ids.find((id) => isUs(prodById(id).brand)) || ids[0]; S.cmp.others = ids.filter((id) => id !== S.cmp.us); fixCmp(); sv('cih_pm_cmp', S.cmp); return renderMatrix(); }
       const so = t.closest('[data-sort]'); if (so) { S.sort = { k: so.dataset.sort, d: S.sort.k === so.dataset.sort ? -S.sort.d : 1 }; $('#mdlBox').innerHTML = modelsTable(); return; }
       switch (t.id) {
         case 'fetchPhotos': return fetchPhotos();
@@ -1366,6 +1458,9 @@
     document.addEventListener('change', async (e) => {
       const t = e.target;
       if (t.id === 'showEmpty') { S.showEmpty = t.checked; return renderMatrix(); }
+      if (t.id === 'mfCat') { S.mf.cat = t.value; S.mfView = ''; return refreshModels(); }
+      if (t.id === 'mfEl') { S.mf.el = t.checked; S.mfView = ''; return refreshModels(); }
+      if (t.id === 'mfView') { S.mfView = t.value; S.mf = Object.assign(MF0(), t.value !== '' && S.views[+t.value] ? S.views[+t.value].f : {}); return refreshModels(); }
       if (t.id === 'showDiff') { S.diff = t.checked; return renderMatrix(); }
       if (t.id === 'chView') { S.cview = t.value; return renderInsights(); }
       if (t.id === 'rankBy') { S.rankBy = t.value; return renderInsights(); }
@@ -1385,6 +1480,7 @@
     });
     document.addEventListener('input', (e) => {
       if (e.target.id === 'mdlSearch') { S.q = e.target.value; $('#mdlBox').innerHTML = modelsTable(); }
+      if (/^mf(MaxP|MaxW|MinB)$/.test(e.target.id)) { const k = { mfMaxP: 'maxP', mfMaxW: 'maxW', mfMinB: 'minB' }[e.target.id]; S.mf[k] = e.target.value; S.mfView = ''; const n = S.products.filter(mfPass).length; $('#mdlBox').innerHTML = modelsTable(); const sm = $('#mfSum'); if (sm) sm.innerHTML = mfOn() ? `${n} of ${S.products.length} models match. ${n ? `<button type="button" class="linkbtn" id="mfCmp">Compare the first ${Math.min(n, MAXCMP)}</button>` : ''}` : ''; const sb = $('#mfSave'); if (sb) sb.disabled = !mfOn(); }
       if (e.target.id === 'pickQ') { S.pickQ = e.target.value; $('#pickList').innerHTML = pickerHtml(); }
       if (e.target.id === 'chFind') { S.chFind = e.target.value; renderInsights(); const f = $('#chFind'); if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); } }
     });
@@ -1420,10 +1516,13 @@
   $('#mpicFile').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; const p = prodById(S.mpic); if (!f || !p) return; if (!/^image\/(png|jpeg|webp)$/.test(f.type) || f.size > 12e6) return toast('Choose a PNG, JPEG or WebP picture under 12 MB'); editPicture(f, { title: `Picture: ${prodName(p)}`, onSave: (u) => saveModelPicture(p.id, u), onRemove: modelPic(p) ? () => removeModelPicture(p.id) : null }); };
   window.CIPM = { S, api, RENDER, mkView, mkNav, go, C, usName, openModel, brandNow, setBrandData, applyBrands, exportBrandsCsv, exportCsv, modelPic, pictureFromPage, autoPicture, refresh };
   modelDialog(); brandDialog(); addCompetitorTools(); wire();
-  S.cmp = Object.assign({ us: '', others: [] }, ld('cih_pm_cmp', {})); S.wide = ld('cih_pm_wide', true); S.fx = Object.assign({}, FX_DEFAULT, ld('cih_pm_fx', {})); S.mkMode = ld('cih_pm_mkmode', 'count') === 'gap' ? 'gap' : 'count'; S.howOpen = !!ld('cih_pm_howto', false);
+  S.cmp = Object.assign({ us: '', others: [] }, ld('cih_pm_cmp', {})); S.wide = ld('cih_pm_wide', true); S.views = ld('cih_pm_views', []).filter((v) => v && v.name && v.f);
+  { const vs = ld('cih_pm_visit', null) || {}; let base = vs.base || 0; if (vs.last && Date.now() - vs.last > 4 * 36e5) base = vs.last; if (!base) base = Date.now() - 7 * 864e5;
+    S.visitBase = base; S.visitFirst = !vs.last; const saveVisit = () => sv('cih_pm_visit', { base: S.visitBase, last: Date.now() }); saveVisit();
+    window.addEventListener('pagehide', saveVisit); document.addEventListener('visibilitychange', () => { if (document.hidden) saveVisit(); }); } S.fx = Object.assign({}, FX_DEFAULT, ld('cih_pm_fx', {})); S.mkMode = ld('cih_pm_mkmode', 'count') === 'gap' ? 'gap' : 'count'; S.howOpen = !!ld('cih_pm_howto', false);
   (async () => {
     try { const [b, p] = await Promise.all([api('GET', '/api/brands'), api('GET', '/api/products')]); setBrandData(b); S.products = p.products || []; }
     catch (err) { toast('Could not load saved profiles and models: ' + err.message); }
-    applyBrands(); go(savedScreen() || 'news');
+    applyBrands(); go(START || 'news');
   })();
 })();

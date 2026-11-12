@@ -97,3 +97,19 @@ test('"null" and similar are never taken as a model name',()=>{
   const r=K.readInput(JSON.stringify([{brand:'Lemmo',model:null,weightKg:12},{brand:'Slane',model:'null',weightKg:10}]),{});
   assert.ok(r.recs.every(x=>!x.model),'model must be empty, not the word null');
 });
+
+test('a sloppy or cut-off AI answer is still read, and parts can be pasted together',()=>{
+  const sloppy="Sure! Here you go:\n```json\n{“products”:[{“brand”:“Tern”,“model”:“Link C8”,“priceGBP”:“£1,099”,“weightKg”:13.3,},],\n // note\n “brands”:[{“brand”:“Tern”,“units”:65000,}]}\n```\nHope that helps";
+  const r=K.readInput(sloppy,{});assert.equal(r.recs.length,1);assert.equal(r.recs[0].values.priceGBP,1099);assert.equal(r.brandRecs[0].values.units,65000);assert.ok(r.notice);
+  const cut='{"brands":[],"products":[{"brand":"Tern","model":"A","weightKg":12},{"brand":"Tern","model":"B","weightKg":13},{"brand":"Tern","model":"C","weigh';
+  const c=K.readInput(cut,{});assert.equal(c.recs.length,2);assert.match(c.notice,/cut off/);
+  const two='{"products":[{"brand":"Tern","model":"A","weightKg":12}]}\nCONTINUE FROM M2\n{"products":[{"brand":"Tern","model":"B","weightKg":13}]}';
+  assert.equal(K.readInput(two,{}).recs.length,2);
+  assert.equal(K.readInput('{"result":{"products":[{"brand":"Tern","model":"A","weightKg":"N/A"}]}}',{}).recs.length,1);
+});
+test('the one-request brief lists every brand, model and new brand and repeats the answer rules',()=>{
+  const p={id:'m1',brand:'Tern',model:'Link C8',priceGBP:1099};
+  const t=K.buildMasterBrief({date:'2026-11-11',brands:[{brand:'Tern',website:'https://ternbicycles.com',known:'22 models',keys:['units','hq']}],models:[{p,missing:K.missingFor(p).slice(0,3)}],fresh:[{brand:'Strida'}]});
+  assert.match(t,/ANSWER FORMAT/);assert.match(t,/B1\. Tern/);assert.match(t,/M1\. Tern \| Link C8 \| id: m1/);assert.match(t,/N1\. Strida/);assert.match(t,/BEFORE YOU REPLY/);assert.match(t,/EXAMPLE OF THE SHAPE/);assert.match(t,/3 items/);
+  assert.equal(K.readInput(t.slice(t.indexOf('{"brands"'),t.indexOf('\n\n',t.indexOf('{"brands"'))),{}).recs.length,1);
+});

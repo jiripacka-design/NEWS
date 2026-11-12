@@ -308,6 +308,74 @@
   };
 
   // Everything that comes back is a list of { id, brand, model, values, na, notes, rejected, unknown }
+  /* ---------- reading an AI answer that is not quite valid JSON ----------
+     AIs add chatter, curly quotes, trailing commas, comments, unquoted keys, several code blocks, or stop half way through a long answer.
+     extractJson() finds every {...} / [...] block in the text, repairs the common slips, merges the blocks, and when an answer was cut off
+     it keeps every complete item before the cut. It returns { values, repaired, cut } where values is a list of parsed blocks. */
+  function repairJson(t) {
+    let s = String(t);
+    s = s.replace(/[\u201C\u201D\u201E\u201F]/g, '"').replace(/[\u2018\u2019]/g, "'");
+    let out = '', inStr = false, q = '';
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i], n = s[i + 1];
+      if (inStr) {
+        if (c === '\\') { out += c + (n || ''); i++; continue; }
+        if (c === q) { inStr = false; out += '"'; continue; }
+        if (c === '"' && q === "'") { out += '\\"'; continue; }
+        if (c === '\n' || c === '\r' || c === '\t') { out += ' '; continue; }
+        out += c; continue;
+      }
+      if (c === '"' || c === "'") { inStr = true; q = c; out += '"'; continue; }
+      if (c === '/' && n === '/') { while (i < s.length && s[i] !== '\n') i++; continue; }
+      if (c === '/' && n === '*') { const e = s.indexOf('*/', i + 2); i = e < 0 ? s.length : e + 1; continue; }
+      out += c;
+    }
+    return out
+      .replace(/,\s*([}\]])/g, '$1')                                                    // trailing commas
+      .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_ ]*?)(\s*:)/g, (m, a, k, b) => a + '"' + k.trim() + '"' + b) // unquoted keys
+      .replace(/:\s*(?:NaN|undefined|None|N\/A|n\/a)\s*(?=[,}\]])/g, ': null')          // values that are not JSON
+      .replace(/"\s*"(?=\s*[A-Za-z"{\[])/g, '"');
+  }
+  function tryParse(t) { try { return { v: JSON.parse(t) }; } catch (e) { /* try the repaired text */ } try { return { v: JSON.parse(repairJson(t)), repaired: true }; } catch (e) { return null; } }
+  // Balanced {...} or [...] regions that start at or after `from`, string aware. An unbalanced start is returned with end = -1.
+  function regionAt(s, i) {
+    const open = s[i], close = open === '{' ? '}' : ']'; let d = 0, inStr = false, q = '';
+    for (let j = i; j < s.length; j++) {
+      const c = s[j];
+      if (inStr) { if (c === '\\') { j++; continue; } if (c === q) inStr = false; continue; }
+      if (c === '"' || c === '\u201C' || c === '\u201D') { inStr = true; q = c === '\u201C' ? '\u201D' : c; continue; }
+      if (c === '{' || c === '[') d++;
+      else if (c === '}' || c === ']') { d--; if (d === 0) return c === close ? j : -1; }
+    }
+    return -1;
+  }
+  function extractJson(text) {
+    const s = String(text).replace(/```(?:json|JSON)?/g, ' ').replace(/\u00A0/g, ' '), values = []; let repaired = false, cut = 0;
+    const salvage = (str) => {
+      // The block never closes (the answer was cut off, or has a slip we cannot repair): keep each complete {...} item inside it.
+      for (let i = 1; i < str.length; i++) {
+        if (str[i] !== '{') continue; const e = regionAt(str, i); if (e < 0) continue;
+        const r = tryParse(str.slice(i, e + 1)); if (r && r.v && typeof r.v === 'object') { values.push(r.v); repaired = true; i = e; }
+      }
+      cut++;
+    };
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] !== '{' && s[i] !== '[') continue;
+      const e = regionAt(s, i);
+      if (e < 0) { salvage(s.slice(i)); break; }
+      const r = tryParse(s.slice(i, e + 1));
+      if (r) { values.push(r.v); if (r.repaired) repaired = true; i = e; } else { salvage(s.slice(i, e + 1)); i = e; }
+    }
+    return { values, repaired, cut };
+  }
+  // Wrapper objects some AIs add: {"result": {...}}, {"data": [...]}, {"response": {"products": [...]}}
+  function unwrap(v, depth) {
+    if (!v || typeof v !== 'object' || Array.isArray(v) || (depth || 0) > 3) return v;
+    if (v.brands || v.products || v.product || v.brand || v.model || v.id) return v;
+    const ks = Object.keys(v).filter((k) => v[k] && typeof v[k] === 'object');
+    return ks.length === 1 ? unwrap(v[ks[0]], (depth || 0) + 1) : v;
+  }
+
   function readInput(text, ctx) {
     ctx = ctx || {};
     const kind = detect(text), out = { kind, recs: [], brandRecs: [], error: '' };
@@ -325,12 +393,19 @@
     };
     try {
       if (kind === 'json') {
-        let t = String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
-        const a = t.search(/[\[{]/), b = Math.max(t.lastIndexOf('}'), t.lastIndexOf(']')); if (a < 0 || b < a) throw new Error('no JSON found');
-        let j = JSON.parse(t.slice(a, b + 1));
-        if (!Array.isArray(j)) { if (Array.isArray(j.brands)) out.brandRecs = j.brands.filter((o) => o && typeof o === 'object').map(toBrandRecord); j = Array.isArray(j.products) ? j.products : j.product ? [j.product] : (j.brands ? [] : [j]); }
-        else { const bs = j.filter(brandish); if (bs.length) { out.brandRecs = bs.map(toBrandRecord); j = j.filter((o) => !brandish(o)); } }
-        out.recs = j.filter((o) => o && typeof o === 'object').map(fromObject);
+        const ex = extractJson(text); if (!ex.values.length) throw new Error('no JSON found');
+        let brandObjs = [], loose = [], prodObjs = [];
+        ex.values.map((v) => unwrap(v)).forEach((j) => {
+          if (Array.isArray(j)) loose.push(...j.map((x) => unwrap(x)));
+          else if (j && typeof j === 'object' && (Array.isArray(j.brands) || Array.isArray(j.products))) { brandObjs.push(...(j.brands || [])); prodObjs.push(...(j.products || [])); }
+          else if (j && typeof j === 'object' && j.product) loose.push(j.product);
+          else if (j && typeof j === 'object') loose.push(j);
+        });
+        const bs = loose.filter(brandish); brandObjs.push(...bs); loose = loose.filter((o) => !brandish(o));
+        out.brandRecs = brandObjs.filter((o) => o && typeof o === 'object').map(toBrandRecord);
+        out.recs = [...prodObjs, ...loose].filter((o) => o && typeof o === 'object').map(fromObject);
+        if (ex.cut) out.notice = 'The answer looks cut off, so only the complete items were read. Ask the AI to continue, then paste its next part under this one.';
+        else if (ex.repaired) out.notice = 'The answer had small formatting slips (quotes, commas or comments). They were fixed automatically; check the values below.';
       } else if (kind === 'table') {
         const rows = parseDelimited(String(text).trim()), head = rows[0].map((h) => h.trim());
         const objs = rows.slice(1).map((r) => { const o = {}; head.forEach((h, i) => { if (h) o[h] = r[i]; }); return o; });
@@ -437,7 +512,65 @@
     items.forEach((x, i) => L.push(`${i + 1}. ${x.brand}${x.website ? ' | ' + x.website : ''}`, `   already known: ${x.known || 'nothing yet'}`, `   missing: ${x.missing.join(', ')}`));
     return L.join('\n');
   }
-  const api = { BFIELDS, BKEY, bkeyOf, toBrandRecord, diffBrand, buildBrandBrief, FIELDS, LABEL, ALIASES, keyOf, coerce, parseFold, parseSpecText, parseDelimited, detect, readInput, toRecord, isElectric, filled, applicable, missingFor, progress, findExisting, diffRecord, buildBrief, knownFacts };
+  /* ---------- ONE request for everything that is missing ----------
+     input: { date, brands: [{ brand, website, known, keys[] }], models: [{ p, missing[] }], fresh: [{ brand, website }] }
+     The answer rules come first AND last (long prompts lose the middle), every key is spelled out per item, and a worked example
+     shows the exact shape. The reader (extractJson) copes with a long answer that is split over several replies. */
+  function buildMasterBrief(input) {
+    input = input || {}; const brands = input.brands || [], models = (input.models || []).filter((x) => x.p), fresh = input.fresh || [];
+    const date = input.date || new Date().toISOString().slice(0, 10), L = [];
+    const usedB = new Set(), usedM = new Set(); brands.forEach((b) => b.keys.forEach((k) => usedB.add(k))); models.forEach((x) => x.missing.forEach((f) => usedM.add(f.k)));
+    if (fresh.length) FIELDS.forEach((f) => usedM.add(f.k));
+    const total = brands.length + models.length + fresh.length;
+    const CONTRACT = [
+      'Reply with ONE JSON object and nothing else: no introduction, no explanation, no markdown, no code fences.',
+      'The object has exactly two keys: "brands" (a list) and "products" (a list). Use an empty list if there is nothing for it.',
+      'Use straight double quotes (") for every key and every text value. No curly quotes, no trailing commas, no comments.',
+      'Numbers are bare numbers: 12.5 (not "12.5 kg"), 1809 (not "£1,809" or "1,809"). No units, symbols or thousands separators.',
+      'A value you could not find is null. Never write "N/A", "unknown", "TBC", "-" or an empty string.',
+      'Text values are short, in the maker\'s own words, one line, under 120 characters.',
+      'Use only the keys listed for that item. Do not add other keys. Copy "brand", "model" and "id" exactly as written below.',
+      'Every item below appears exactly once in your answer, even if all its values are null. Do not skip, merge or reorder items.',
+      'Each item gets "sourceUrl": the exact page you took its values from (starts with https://), or null.',
+      'Anything else you want to tell us goes in that item\'s "notes" (short). Never outside the JSON.'
+    ];
+    L.push('TASK', `You are a research assistant completing a competitor database for a UK folding-bike retailer. Today is ${date}. Below are ${brands.length} brand${brands.length === 1 ? '' : 's'}, ${models.length} model${models.length === 1 ? '' : 's'}${fresh.length ? ` and ${fresh.length} brand${fresh.length === 1 ? '' : 's'} with no models yet` : ''} (${total} items). For each, find only the missing values listed, using web search, then answer in the format below. Work through the items in order.`, '',
+      'ANSWER FORMAT (a program reads your answer, so follow every line)', ...CONTRACT.map((x, i) => `${i + 1}. ${x}`), '',
+      'HOW TO FIND VALUES',
+      '- Models: the maker\'s own product page first (UK site, prices in GBP incl. VAT). If that fails, a large UK retailer, and say so in notes.',
+      '- Brands: the brand\'s own site, annual reports or filings, then trade press (BikeBiz, Cycling Industry News, Bike Europe). Use the latest full year and put it in figuresYear.',
+      '- Never guess, estimate or answer from memory. Sales volumes and revenue are often unpublished: null is then the right answer.',
+      '- A company\'s own claim is allowed: say "company claim" in notes.',
+      '- Several variants on one page: use the base model and name the variant in notes. If only EUR or USD is shown, use priceEUR / priceUSD and leave priceGBP null.',
+      '- Fold size: give foldH, foldW and foldL in cm (three separate numbers). Revenue in GBP millions. Battery in Wh (volts x amp-hours if only those are given).',
+      '- For a model, if its page exists but clearly does not state a field, put that key in a list "na" for the item (for example "na":["rollerWheels"]) and leave the field out. Use null only when you could not find the page.', '');
+    L.push('KEYS AND FORMATS');
+    if (usedB.size) L.push('Brand keys:', ...BFIELDS.filter((f) => usedB.has(f.k) && f.k !== 'sourceUrl').map((f) => `- ${f.k}: ${f.l}. ${f.h}`));
+    if (usedM.size) L.push('Model keys:', ...FIELDS.filter((f) => usedM.has(f.k)).map((f) => `- ${f.k}: ${f.l}. ${f.h}`), '- na: list of keys the maker does not publish');
+    L.push('', 'EXAMPLE OF THE SHAPE (invented values, do not copy them)',
+      '{"brands":[{"brand":"Example Bikes","units":12000,"figuresYear":2024,"hq":"Leeds, UK","sourceUrl":"https://example.com/about","notes":"company claim"}],',
+      ' "products":[{"id":"abc123","brand":"Example Bikes","model":"Fold 8","priceGBP":899,"weightKg":12.8,"foldH":62,"foldW":55,"foldL":28,"gears":"8-speed","na":["lighting"],"sourceUrl":"https://example.com/fold-8","notes":""}]}', '');
+    if (brands.length) {
+      L.push(`PART 1. BRANDS (${brands.length})`, 'For each brand return an object with "brand" plus only its missing keys.');
+      brands.forEach((b, i) => L.push(`B${i + 1}. ${b.brand}${b.website ? ' | ' + b.website : ''} | known: ${b.known || 'nothing yet'} | keys: ${b.keys.join(', ')}`));
+      L.push('');
+    }
+    if (models.length) {
+      L.push(`PART 2. MODELS WE ALREADY TRACK (${models.length})`, 'For each model return an object with "id", "brand", "model" plus only its missing keys.');
+      models.forEach((x, i) => L.push(`M${i + 1}. ${x.p.brand} | ${x.p.model} | id: ${x.p.id}${x.p.sourceUrl || x.p.url ? ' | start here: ' + (x.p.sourceUrl || x.p.url) : ''} | known: ${knownFacts(x.p) || 'nothing yet'} | keys: ${x.missing.map((f) => (f.k === 'fold' ? 'foldH, foldW, foldL' : f.k)).join(', ')}`));
+      L.push('');
+    }
+    if (fresh.length) {
+      L.push(`PART 3. BRANDS WITH NO MODELS YET (${fresh.length})`, 'For each brand add to "products": its main folding bike and, if it makes one, its main folding e-bike (at most 2 per brand). Use "id":"" and fill as many model keys as the page states.');
+      fresh.forEach((x, i) => L.push(`N${i + 1}. ${x.brand}${x.website ? ' | ' + x.website : ''}`));
+      L.push('');
+    }
+    L.push('IF THE ANSWER IS TOO LONG FOR ONE REPLY',
+      'Finish the item you are on, close every bracket so the JSON is valid, and write on a new line: CONTINUE FROM <the item number, e.g. M14>. When I reply "continue", send the next items in exactly the same format (one JSON object, same two keys).', '',
+      'BEFORE YOU REPLY, CHECK', '- One valid JSON object, nothing before or after it (apart from the CONTINUE line if needed).', '- All numbers bare, all unknowns null, straight quotes, no trailing commas.', `- All ${total} items present, in order, with the exact names and ids.`);
+    return L.join('\n');
+  }
+  const api = { buildMasterBrief, extractJson, repairJson, BFIELDS, BKEY, bkeyOf, toBrandRecord, diffBrand, buildBrandBrief, FIELDS, LABEL, ALIASES, keyOf, coerce, parseFold, parseSpecText, parseDelimited, detect, readInput, toRecord, isElectric, filled, applicable, missingFor, progress, findExisting, diffRecord, buildBrief, knownFacts };
 
   /* ===================================================================  PAGE  ===================================================================
      v3.11: one brand at a time, in three steps on one card:
@@ -447,7 +580,7 @@
   api.mount = function (X) {
     const { S, api: call, RENDER, mkView, mkNav, go, C } = X, { $, esc, toast } = C;
     const today = () => new Date().toISOString().slice(0, 10);
-    const ui = { text: '', model: '', modelSel: '', imp: null, scope: 'gaps', bb: '', size: 8, page: 0, wb: '', allFacts: false, method: 'ai', url: '', fetching: false, fetchMsg: '', open: new Set(), aiMode: 'gaps', recheckRead: false, pageImage: '', usePic: true, rc: { results: {}, running: false, done: 0, total: 0, off: {}, failed: [] } };
+    const ui = { text: '', model: '', modelSel: '', imp: null, scope: 'all', bb: '', size: 8, page: 0, wb: '', allFacts: false, method: 'ai', url: '', fetching: false, fetchMsg: '', open: new Set(), aiMode: 'gaps', recheckRead: false, pageImage: '', usePic: true, rc: { results: {}, running: false, done: 0, total: 0, off: {}, failed: [] } };
     const STALE = 90, age = (d) => (d ? Math.floor((Date.now() - Date.parse(d)) / 864e5) : Infinity), stale = (p) => p.status !== 'discontinued' && age(p.lastVerified) > STALE, disc = (p) => p.status === 'discontinued';
     const pageOf = (p) => [p.url, p.sourceUrl].find((u) => /^https:\/\//i.test(String(u || ''))) || '';
     const fmtD = (d) => (d ? new Date(d + (d.length === 10 ? 'T12:00:00' : '')).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'never');
@@ -494,7 +627,7 @@
         const stale = rec.rows.some((x) => (x.k === 'units' || x.k === 'revenueGBPm') && x.status === 'differs' && !x.on), yr = rec.rows.find((x) => x.k === 'figuresYear');
         if (stale && yr && yr.status !== 'same') { yr.on = false; yr.hint = 'Left off: it would label the figure you already have with a different year. Tick bikes sold per year / revenue as well to use it.'; }
       });
-      ui.imp = r; renderPreview();
+      ui.imp = r; renderPreview(); if (r.notice) toast(r.notice);
     }
     const nConfirm = () => (ui.imp && ui.recheckRead ? ui.imp.recs.filter((r) => r.match && !r.problem).length + (ui.imp.brandRecs || []).filter((r) => r.exists).length : 0);
     function nChosen() { return ui.imp ? ui.imp.recs.filter((r) => r.disc && r.discOn).length + (ui.imp.brandRecs || []).reduce((n, r) => n + r.rows.filter((x) => x.on && x.k !== 'sourceUrl').length + (r.exists ? 0 : 1), 0) + ui.imp.recs.reduce((n, r) => n + (r.problem ? 0 : r.rows.filter((x) => x.on).length) + (r.problem ? 0 : r.na.length ? 1 : 0), 0) : 0; }
@@ -910,6 +1043,14 @@
     /* ----- bulk AI requests ----- */
     const brandKnown = (b) => { const n = X.brandNow(b), k = []; if (n.units) k.push(n.units.toLocaleString('en-GB') + ' bikes/yr'); if (n.skuCount) k.push(n.skuCount + ' models'); if (n.paSkus != null) k.push(n.paSkus + ' P&A products'); if (n.hq) k.push(n.hq); return k.join(', '); };
     const brandMissing = (b) => factState(b).missing.map((k) => (k === 'regions' ? 'regionEMEA (and regionUS, regionAPAC, regionCHINA)' : k));
+    // Everything missing, for every brand (or the chosen one), as a single request.
+    function masterInput() {
+      const only = (b) => !ui.bb || b === ui.bb;
+      const brands = C.brands.filter(only).slice().sort((a, b) => (b === us()) - (a === us()) || ((S.brands[b] || {}).watch ? 0 : 1) - ((S.brands[a] || {}).watch ? 0 : 1) || a.localeCompare(b)).map((b) => ({ brand: b, website: (S.brands[b] || {}).website || '', known: brandKnown(b), keys: factState(b).missing.flatMap((k) => (k === 'regions' ? REGION_KEYS : [k])) })).filter((x) => x.keys.length);
+      const models = sorted().filter((p) => only(p.brand) && !disc(p)).map((p) => ({ p, missing: missingFor(p) })).filter((x) => x.missing.length);
+      const fresh = C.brands.filter((b) => only(b) && !S.products.some((p) => p.brand === b)).map((b) => ({ brand: b, website: (S.brands[b] || {}).website || '' }));
+      return { brands, models, fresh };
+    }
     function briefItems() {
       if (ui.scope === 'brands') return C.brands.filter((b) => !ui.bb || b === ui.bb).slice().sort((a, b) => (b === us()) - (a === us()) || ((S.brands[b] || {}).watch ? 0 : 1) - ((S.brands[a] || {}).watch ? 0 : 1) || a.localeCompare(b)).map((b) => ({ brandFacts: true, brand: b, website: (S.brands[b] || {}).website || '', known: brandKnown(b), missing: brandMissing(b) })).filter((x) => x.missing.length);
       if (ui.scope === 'new') return C.brands.filter((b) => !S.products.some((p) => p.brand === b) && (!ui.bb || b === ui.bb)).map((b) => ({ p: null, brand: b, website: (S.brands[b] || {}).website || '' }));
@@ -917,15 +1058,16 @@
     }
     function renderBrief() {
       const box = $('#clBriefBox', root); if (!box) return;
-      const items = briefItems(), pages = Math.max(1, Math.ceil(items.length / ui.size)); ui.page = Math.min(ui.page, pages - 1);
-      const chunk = items.slice(ui.page * ui.size, ui.page * ui.size + ui.size), txt = chunk.length ? (ui.scope === 'brands' ? buildBrandBrief(chunk) : buildBrief(chunk)) : '';
-      const bl = ui.scope === 'brands' ? C.brands.filter((b) => brandMissing(b).length) : ui.scope === 'new' ? C.brands.filter((b) => !S.products.some((p) => p.brand === b)) : [...new Set(S.products.filter((p) => missingFor(p).length).map((p) => p.brand))];
+      const all = ui.scope === 'all', mi = all ? masterInput() : null;
+      const items = all ? [...mi.brands, ...mi.models, ...mi.fresh] : briefItems(), pages = all ? 1 : Math.max(1, Math.ceil(items.length / ui.size)); ui.page = Math.min(ui.page, pages - 1);
+      const chunk = all ? items : items.slice(ui.page * ui.size, ui.page * ui.size + ui.size), txt = all ? (items.length ? buildMasterBrief(Object.assign({ date: today() }, mi)) : '') : chunk.length ? (ui.scope === 'brands' ? buildBrandBrief(chunk) : buildBrief(chunk)) : '';
+      const bl = all ? C.brands : ui.scope === 'brands' ? C.brands.filter((b) => brandMissing(b).length) : ui.scope === 'new' ? C.brands.filter((b) => !S.products.some((p) => p.brand === b)) : [...new Set(S.products.filter((p) => missingFor(p).length).map((p) => p.brand))];
       box.innerHTML = `<div class="cl-sub-h"><h4>Bulk AI requests</h4><span class="muted">Copy a request into an AI that can browse the web, then paste its answer into “Paste text or a file” above.</span></div>
-        <div class="cl-row"><label class="ctl"><span>Ask for</span><select class="field" id="clScope"><option value="gaps"${ui.scope === 'gaps' ? ' selected' : ''}>Missing values in existing models</option><option value="new"${ui.scope === 'new' ? ' selected' : ''}>Models for brands that have none</option><option value="brands"${ui.scope === 'brands' ? ' selected' : ''}>Brand facts: volumes, SKUs, P&amp;A, markets</option></select></label>
+        <div class="cl-row"><label class="ctl"><span>Ask for</span><select class="field" id="clScope"><option value="all"${ui.scope === 'all' ? ' selected' : ''}>Everything missing: brands and models, in one request</option><option value="gaps"${ui.scope === 'gaps' ? ' selected' : ''}>Missing values in existing models</option><option value="new"${ui.scope === 'new' ? ' selected' : ''}>Models for brands that have none</option><option value="brands"${ui.scope === 'brands' ? ' selected' : ''}>Brand facts: volumes, SKUs, P&amp;A, markets</option></select></label>
           <label class="ctl"><span>Brand</span><select class="field" id="clBb"><option value="">All</option>${bl.sort((a, b) => a.localeCompare(b)).map((b) => `<option${b === ui.bb ? ' selected' : ''}>${esc(b)}</option>`).join('')}</select></label>
-          <label class="ctl"><span>Per request</span><select class="field" id="clSize">${[4, 8, 12, 20].map((n) => `<option${n === ui.size ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
-          <label class="ctl"><span>Request</span><select class="field" id="clPage">${Array.from({ length: pages }, (_, i) => `<option value="${i}"${i === ui.page ? ' selected' : ''}>${i + 1} of ${pages}</option>`).join('')}</select></label></div>
-        ${txt ? `<textarea class="field cl-text cl-req" id="clBrief" readonly>${esc(txt)}</textarea><div class="cl-row tight"><button type="button" class="primary" id="clCopy">Copy request</button><button type="button" class="imagebtn" id="clDl">Download as text</button><span class="muted">${chunk.length} of ${pl(items.length, 'item')} in this request</span></div>` : `<div class="pm-empty"><strong>Nothing to ask for</strong><span>${ui.scope === 'new' ? 'Every tracked brand has at least one model.' : 'No model has missing values.'}</span></div>`}`;
+          <label class="ctl"${all ? ' hidden' : ''}><span>Per request</span><select class="field" id="clSize">${[4, 8, 12, 20].map((n) => `<option${n === ui.size ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
+          <label class="ctl"${all ? ' hidden' : ''}><span>Request</span><select class="field" id="clPage">${Array.from({ length: pages }, (_, i) => `<option value="${i}"${i === ui.page ? ' selected' : ''}>${i + 1} of ${pages}</option>`).join('')}</select></label></div>
+        ${txt ? `<textarea class="field cl-text cl-req" id="clBrief" readonly>${esc(txt)}</textarea><div class="cl-row tight"><button type="button" class="primary" id="clCopy">Copy request</button><button type="button" class="imagebtn" id="clDl">Download as text</button><span class="muted">${all ? `${pl(items.length, 'item')} in one request: ${pl(mi.brands.length, 'brand')}, ${pl(mi.models.length, 'model')}${mi.fresh.length ? `, ${pl(mi.fresh.length, 'new brand')}` : ''}. If the AI stops part way, tell it to continue and paste each part under the last.` : `${chunk.length} of ${pl(items.length, 'item')} in this request`}</span></div>` : `<div class="pm-empty"><strong>Nothing to ask for</strong><span>${ui.scope === 'new' ? 'Every tracked brand has at least one model.' : 'No model has missing values.'}</span></div>`}`;
     }
 
     /* ----- events ----- */
