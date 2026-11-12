@@ -1,0 +1,1 @@
+import {authorised} from '../../../lib/auth.js';import {paths,readJson} from '../../../lib/store.js';export async function GET(req){if(!authorised(req))return Response.json({error:'Unauthorized'},{status:401});const status=await readJson(paths.status,null),history=await readJson(paths.history,{runs:[]});return Response.json({status,history:history.runs})}
