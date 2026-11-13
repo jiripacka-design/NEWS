@@ -422,6 +422,7 @@
     S.cmp.others = [...new Set(o)]; fixCmp(); $('#pmPick').close(); renderMatrix();
   }
   // A missing value is an action, not a dead end: it opens Collect data for that model.
+  const densBar = () => `<span class="ap-ctl"><span class="seg" role="group" aria-label="Row density"><button type="button" data-dens="compact" class="${S.dens === 'compact' ? 'on' : ''}" aria-pressed="${S.dens === 'compact'}">Compact</button><button type="button" data-dens="comfortable" class="${S.dens === 'comfortable' ? 'on' : ''}" aria-pressed="${S.dens === 'comfortable'}">Comfortable</button></span><button type="button" class="linkbtn" data-secall="close">Collapse all</button><button type="button" class="linkbtn" data-secall="open">Expand all</button></span>`;
   const missBtn = (p, label) => `<button type="button" class="miss" data-fill="${esc(p.id)}" title="Find ${esc(String(label).toLowerCase())} for ${esc(p.model)} in Collect data">+ Add</button>`;
   const isEl = (p) => /e-bike|electric/i.test(p.category || '') || !!(p.batteryWh || p.motor);
   const MF0 = () => ({ cat: '', maxP: '', maxW: '', minB: '', el: false });
@@ -471,29 +472,29 @@
     const ids = [S.cmp.us, ...S.cmp.others], cols = ids.map(prodById).filter(Boolean), us = prodById(S.cmp.us);
     if (!S.products.length) return '<div class="pm-empty"><strong>No models to compare yet</strong><span>Select Load researched data to start with 13 models, or add your own. Specs and prices cannot be scraped reliably, so they are entered here (or imported from a CSV) and saved on the server.</span><button type="button" class="primary" id="loadStarter2">Load researched data</button></div>';
     const n = Math.min(MAXCMP, Math.max(cols.length + 1, 3)), slots = []; for (let i = 0; i < n; i++) slots.push(prodById(ids[i]) || null);
-    const style = `--n:${n}`; let hidden = 0, out = '', sec = '', secOpen = false;
-    const flush = () => { if (secOpen) { out += '</section>'; secOpen = false; } };
+    const style = `--n:${n}`; let hidden = 0, out = '', sec = '', secOpen = false, secHtml = '', secN = 0;
+    const flush = () => { if (secOpen) { const k = slug(sec), shut = S.secClosed.has(k); out += `<section class="ap-sec${shut ? ' closed' : ''}" data-sec="${k}"><h3><button type="button" class="sec-t" data-sec="${k}" aria-expanded="${!shut}"><span class="car" aria-hidden="true">▾</span>${esc(sec)} <small>${secN} ${secN === 1 ? 'row' : 'rows'}</small></button></h3><div class="ap-rows">${secHtml}</div></section>`; secOpen = false; secHtml = ''; secN = 0; } };
     ROWS.forEach((r) => {
       if (r.sec) { sec = r.sec; flush(); return; }
       const vals = slots.map((p) => (p ? r.get(p) : null)), has = vals.filter((v) => v != null && v !== '');
       if (!S.showEmpty && !has.length) { hidden++; return; }
       if (S.diff && has.length === cols.length && cols.length > 1 && new Set(has.map((v) => String(v).trim().toLowerCase())).size === 1) { hidden++; return; }
-      if (!secOpen) { out += `<section class="ap-sec"><h3>${esc(sec)}</h3>`; secOpen = true; }
+      if (!secOpen) secOpen = true; secN++;
       const nums = vals.filter((v) => typeof v === 'number'), best = r.dir && nums.length > 1 ? (r.dir === 'low' ? Math.min(...nums) : Math.max(...nums)) : null, worst = r.dir && nums.length > 1 ? (r.dir === 'low' ? Math.max(...nums) : Math.min(...nums)) : null, uv = us ? r.get(us) : null;
-      out += `<div class="ap-row"><div class="ap-l">${r.label}</div><div class="ap-vals" style="${style}">${slots.map((p, i) => {
+      secHtml += `<div class="ap-row"><div class="ap-l">${r.label}</div><div class="ap-vals" style="${style}">${slots.map((p, i) => {
         if (!p) return '<div class="ap-c"></div>';
         const v = vals[i], ok = v != null && v !== ''; let delta = '';
         if (ok && r.dir && typeof v === 'number' && p.id !== S.cmp.us && typeof uv === 'number') {
           const d = Math.round((v - uv) * 100) / 100;
           if (d !== 0) delta = `<small class="dl${(r.dir === 'low' ? d < 0 : d > 0) ? ' adv' : ''}" title="Compared with ${esc(prodName(us))}">${d > 0 ? '+' : '−'}${r.fmt(Math.abs(d))} vs ${isUs(us.brand) ? 'us' : 'first'}</small>`;
         }
-        return `<div class="ap-c${isUs(p.brand) ? ' is-us' : ''}${best != null && v === best ? ' best' : ''}${worst != null && worst !== best && v === worst ? ' worst' : ''}"><div class="ap-v">${ok ? (r.html ? r.html(v) : esc((r.pre ? r.pre(p) : '') + r.fmt(v))) : (r.k && !['notes', 'src', 'lastVerified'].includes(r.k) ? missBtn(p, r.label) : '<span class="muted">—</span>')}</div>${r.note && r.note(p) ? `<small class="muted">${esc(r.note(p))}</small>` : ''}${delta}</div>`;
+        return `<div class="ap-c${isUs(p.brand) ? ' is-us' : ''}${best != null && v === best ? ' best' : ''}${worst != null && worst !== best && v === worst ? ' worst' : ''}"><div class="ap-v">${ok ? (r.html ? r.html(v) : esc((r.pre ? r.pre(p) : '') + r.fmt(v))) : (r.k && !['notes', 'src', 'lastVerified'].includes(r.k) ? missBtn(p, r.label) : '<span class="muted">—</span>')}${ok && r.note && r.note(p) ? `<button type="button" class="ni" title="${esc(r.note(p))}" aria-label="Note: ${esc(r.note(p))}">i</button>` : ''}</div>${r.note && r.note(p) ? `<small class="muted ap-note">${esc(r.note(p))}</small>` : ''}${delta}</div>`;
       }).join('')}</div></div>`;
     });
     flush();
     const hs = n >= 5 || (window.innerWidth || 1200) < 1000;
-    return `<div class="ap${hs ? ' hs' : ''}" style="${style}"><div class="ap-head"><div class="ap-cards" style="${style}">${slots.map((p, i) => headCard(p, i)).join('')}</div></div>${out || '<div class="source-empty">Nothing to show with these settings.</div>'}</div>
-      <div class="sub ap-foot"><label class="chk"><input type="checkbox" id="showDiff"${S.diff ? ' checked' : ''}> Show only differences</label> &nbsp; <label class="chk"><input type="checkbox" id="showEmpty"${S.showEmpty ? ' checked' : ''}> Show rows with no data</label>${hidden ? ` &nbsp; ${hidden} row${hidden === 1 ? '' : 's'} hidden` : ''} &nbsp; <span class="legend-best"></span> best value in the row, <span class="legend-worst"></span> weakest. Orange means that model is ahead of the first column on that spec.${hs ? ' Scroll sideways: the first model stays in view.' : ''}</div>`;
+    return `<div class="ap-bar">${densBar()}</div><div class="ap ${S.dens}${hs ? ' hs' : ''}" style="${style}"><div class="ap-head"><div class="ap-cards" style="${style}">${slots.map((p, i) => headCard(p, i)).join('')}</div></div><div class="ap-stick" aria-label="Models being compared"><div class="ap-vals" style="${style}">${slots.map((p) => (p ? `<div class="ap-sn"><span>${esc(p.brand)}</span><strong>${esc(p.model)}</strong></div>` : '<div></div>')).join('')}</div></div>${out || '<div class="source-empty">Nothing to show with these settings.</div>'}</div>
+      <div class="sub ap-foot"><label class="chk"><input type="checkbox" id="showDiff"${S.diff ? ' checked' : ''}> Show only differences</label> &nbsp; <label class="chk"><input type="checkbox" id="showEmpty"${S.showEmpty ? ' checked' : ''}> Show rows with no data</label> &nbsp; ${densBar()}${hidden ? ` &nbsp; ${hidden} row${hidden === 1 ? '' : 's'} hidden` : ''} &nbsp; <span class="legend-best"></span> best value in the row, <span class="legend-worst"></span> weakest. Orange means that model is ahead of the first column on that spec.${hs ? ' Scroll sideways: the first model stays in view.' : ''}</div>`;
   }
   // Re-draw only the filter bar and the table, so typing in a filter box is not interrupted.
   function refreshModels() { const m = $('#mdlBox'); if (!m) return renderMatrix(); const bar = $('.mf'); if (bar) bar.outerHTML = filterBar(); m.innerHTML = modelsTable(); }
@@ -1424,6 +1425,10 @@
       const ad = t.closest('[data-add]'); if (ad) return openModel(null, ad.dataset.add);
       const cm = t.closest('[data-cmp]'); if (cm) { addCmp(cm.dataset.cmp); if (($('.view.active') || {}).id !== 'matrix') go('matrix'); return; }
       const un = t.closest('[data-unc]'); if (un) { S.cmp.others = S.cmp.others.filter((x) => x !== un.dataset.unc); fixCmp(); return renderMatrix(); }
+      const dn = t.closest('[data-dens]'); if (dn) { S.dens = dn.dataset.dens === 'comfortable' ? 'comfortable' : 'compact'; sv('cih_pm_dens', S.dens); const ap = $('.ap'); if (ap) { ap.classList.remove('compact', 'comfortable'); ap.classList.add(S.dens); } document.querySelectorAll('[data-dens]').forEach((b) => { const on = b.dataset.dens === S.dens; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); }); return; }
+      const st = t.closest('button[data-sec]'); if (st) { const k = st.dataset.sec, shut = !S.secClosed.has(k); shut ? S.secClosed.add(k) : S.secClosed.delete(k); sv('cih_pm_secs', [...S.secClosed]); const sc = st.closest('.ap-sec'); if (sc) sc.classList.toggle('closed', shut); st.setAttribute('aria-expanded', !shut); return; }
+      const sa = t.closest('[data-secall]'); if (sa) { const shut = sa.dataset.secall === 'close'; document.querySelectorAll('.ap-sec').forEach((sc) => { const k = sc.dataset.sec; shut ? S.secClosed.add(k) : S.secClosed.delete(k); sc.classList.toggle('closed', shut); const b = sc.querySelector('button[data-sec]'); if (b) b.setAttribute('aria-expanded', !shut); }); sv('cih_pm_secs', [...S.secClosed]); return; }
+      const ni = t.closest('.ni'); if (ni) { const c = ni.closest('.ap-c'); if (c) c.classList.toggle('shownote'); return; }
       const fl = t.closest('[data-fill]'); if (fl) { const p = prodById(fl.dataset.fill); if (p && window.CIPM.collectOpen) window.CIPM.collectOpen(p.brand, p.model); return; }
       if (t.id === 'mfClear') { S.mf = MF0(); S.mfView = ''; return refreshModels(); }
       if (t.id === 'mfSave') { const name = (prompt('Name this view, for example “Electric folders under £3k”') || '').trim().slice(0, 60); if (!name) return; const i = S.views.findIndex((v) => v.name.toLowerCase() === name.toLowerCase()); const v = { name, f: Object.assign({}, S.mf) }; if (i >= 0) S.views[i] = v; else S.views.push(v); sv('cih_pm_views', S.views); S.mfView = String(i >= 0 ? i : S.views.length - 1); toast(`View “${name}” saved`); return refreshModels(); }
@@ -1516,7 +1521,7 @@
   $('#mpicFile').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; const p = prodById(S.mpic); if (!f || !p) return; if (!/^image\/(png|jpeg|webp)$/.test(f.type) || f.size > 12e6) return toast('Choose a PNG, JPEG or WebP picture under 12 MB'); editPicture(f, { title: `Picture: ${prodName(p)}`, onSave: (u) => saveModelPicture(p.id, u), onRemove: modelPic(p) ? () => removeModelPicture(p.id) : null }); };
   window.CIPM = { S, api, RENDER, mkView, mkNav, go, C, usName, openModel, brandNow, setBrandData, applyBrands, exportBrandsCsv, exportCsv, modelPic, pictureFromPage, autoPicture, refresh };
   modelDialog(); brandDialog(); addCompetitorTools(); wire();
-  S.cmp = Object.assign({ us: '', others: [] }, ld('cih_pm_cmp', {})); S.wide = ld('cih_pm_wide', true); S.views = ld('cih_pm_views', []).filter((v) => v && v.name && v.f);
+  S.cmp = Object.assign({ us: '', others: [] }, ld('cih_pm_cmp', {})); S.wide = ld('cih_pm_wide', true); S.views = ld('cih_pm_views', []).filter((v) => v && v.name && v.f); S.dens = ld('cih_pm_dens', 'compact') === 'comfortable' ? 'comfortable' : 'compact'; S.secClosed = new Set(ld('cih_pm_secs', []));
   { const vs = ld('cih_pm_visit', null) || {}; let base = vs.base || 0; if (vs.last && Date.now() - vs.last > 4 * 36e5) base = vs.last; if (!base) base = Date.now() - 7 * 864e5;
     S.visitBase = base; S.visitFirst = !vs.last; const saveVisit = () => sv('cih_pm_visit', { base: S.visitBase, last: Date.now() }); saveVisit();
     window.addEventListener('pagehide', saveVisit); document.addEventListener('visibilitychange', () => { if (document.hidden) saveVisit(); }); } S.fx = Object.assign({}, FX_DEFAULT, ld('cih_pm_fx', {})); S.mkMode = ld('cih_pm_mkmode', 'count') === 'gap' ? 'gap' : 'count'; S.howOpen = !!ld('cih_pm_howto', false);

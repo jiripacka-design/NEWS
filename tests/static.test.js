@@ -133,10 +133,23 @@ test('v3.14 comparison, insights and visual additions are wired in',()=>{
   const p=fs.readFileSync('public/pm.js','utf8'),h=fs.readFileSync('public/tracker.html','utf8');
   for(const k of ['filterBar()','winLose()','sinceLast()','missBtn(','data-fill','cih_pm_views','cih_pm_visit','class="usband"','const SKEL'])assert.ok(p.includes(k),k);
   assert.ok(p.includes("worst != null && worst !== best"),'weakest value in a row is marked');
-  assert.ok(p.includes("ap${hs ? ' hs' : ''}"),'sideways scrolling keeps the first model in view');
+  assert.ok(p.includes("ap ${S.dens}${hs ? ' hs' : ''}"),'sideways scrolling keeps the first model in view');
   for(const k of ['.ap-c.worst','.ap.hs','.wl-card','.since-g','.skel{','prefers-reduced-motion'])assert.ok(h.includes(k),k);
 });
 test('Collect data defaults to one request for everything missing',()=>{
   const c=fs.readFileSync('public/collect.js','utf8');
   assert.ok(c.includes("scope: 'all'")&&c.includes('buildMasterBrief(Object.assign'));
+});
+
+test('comparison: no blue cell fill, better/worse tint the whole cell, only names stay pinned',()=>{
+  const p=fs.readFileSync('public/pm.js','utf8'),h=fs.readFileSync('public/tracker.html','utf8');
+  assert.ok(p.includes('class="ap-stick"')&&h.includes('.ap-head{position:static!important'));
+  assert.ok(h.includes('.ap .ap-c.best{background:rgba(95,214,173')&&h.includes('.ap .ap-c.worst{background:rgba(240,165,138'));
+  assert.ok(h.includes('.ap .ap-c.is-us,.ap-c.is-us{background:transparent!important'));
+});
+
+test('comparison density, folded notes and collapsible sections are wired in',()=>{
+  const p=fs.readFileSync('public/pm.js','utf8'),h=fs.readFileSync('public/tracker.html','utf8');
+  for(const k of ['cih_pm_dens','cih_pm_secs','data-dens','data-secall','class="ni"','ap-note','sec-t'])assert.ok(p.includes(k),k);
+  for(const k of ['.ap.compact .ap-row{display:grid','.ap-sec.closed .ap-rows{display:none}','.ap.compact .ap-note{display:none}'])assert.ok(h.includes(k),k);
 });
