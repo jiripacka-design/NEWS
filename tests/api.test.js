@@ -75,3 +75,12 @@ test('brand profile company fields validate; photo route finds a preview picture
   }finally{globalThis.fetch=real}
   assert.equal((await photos.POST(anon('POST','/api/brand-photos',{brand:'Tern'}))).status,401);
 });
+
+test('a spec of any kind can be marked "not published", and a lenient save skips a bad value instead of rejecting every model',async()=>{
+  for(const k of ['line','priceEUR','priceUSD','priceGBP','fold','weightKg','rollerWheels','sourceUrl']){const r=await products.POST(req('POST','/api/products',{product:{brand:'Birdy',model:'NA test',na:[k]}}));assert.equal(r.status,200,k)}
+  const batch={products:[{brand:'Birdy',model:'Good one',weightKg:12.1},{brand:'Birdy',model:'Odd launch',weightKg:11.8,launch:'soon'}]};
+  assert.equal((await products.POST(req('POST','/api/products',batch))).status,400,'a strict save refuses the whole batch');
+  const r=await products.POST(req('POST','/api/products',{...batch,lenient:true})),d=await r.json();
+  assert.equal(r.status,200);assert.deepEqual(d.dropped.map(x=>x.fields),[['launch']]);
+  assert.equal(d.products.find(p=>p.model==='Odd launch').weightKg,11.8);assert.equal(d.products.find(p=>p.model==='Odd launch').launch,undefined);
+});

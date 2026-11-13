@@ -16,8 +16,11 @@ export async function POST(req){
   const incoming=Array.isArray(b.products)?b.products:b.product?[b.product]:null;
   if(!incoming||!incoming.length)return Response.json({error:'Send {product} or {products:[...]}'},{status:400});
   if(incoming.length>MAX)return Response.json({error:`At most ${MAX} models per request`},{status:400});
-  const cleaned=[];
-  for(const [i,p] of incoming.entries()){const {out,bad}=cleanProduct(p||{});if(bad.length)return Response.json({error:`${incoming.length>1?`Row ${i+1}: `:''}${bad.join('; ')}`},{status:400});cleaned.push({id:String(p.id||'').slice(0,40),...out})}
+  const cleaned=[],dropped=[];
+  // lenient (used by Collect data): a value in a format we cannot accept is skipped and reported, instead of rejecting every model in the save
+  for(const [i,p0] of incoming.entries()){let p=p0||{},res=cleanProduct(p);
+    if(res.bad.length&&b.lenient===true){p={...p};for(let t=0;t<4&&res.bad.length;t++){const ks=[...new Set(res.bad.map(x=>(String(x).match(/^[A-Za-z]+/)||[''])[0]))].filter(k=>k&&!['brand','model'].includes(k)&&k in p);if(!ks.length)break;ks.forEach(k=>delete p[k]);dropped.push({row:i+1,model:String(p.model||''),fields:ks});res=cleanProduct(p)}}
+    const {out,bad}=res;if(bad.length)return Response.json({error:`${incoming.length>1?`Row ${i+1}: `:''}${bad.join('; ')}`},{status:400});cleaned.push({id:String(p.id||'').slice(0,40),...out})}
   const d=await readJson(paths.products,{updatedAt:null,products:[]});d.products=d.products||[];
   const now=new Date().toISOString();let added=0,updated=0;const changes=[];
   // how the change was made, for the edit history: edit (by hand), collect, re-check, import
@@ -31,7 +34,7 @@ export async function POST(req){
   d.updatedAt=now;
   await writeJson(paths.products,d);
   try{await recordChanges(changes,{by:userOf(req),via})}catch(e){/* history is best effort: the save itself succeeded */}
-  return Response.json({...d,added,updated});
+  return Response.json({...d,added,updated,dropped});
 }
 export async function DELETE(req){
   if(!authorised(req))return Response.json({error:'Unauthorized'},{status:401});

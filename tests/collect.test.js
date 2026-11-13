@@ -113,3 +113,15 @@ test('the one-request brief lists every brand, model and new brand and repeats t
   assert.match(t,/ANSWER FORMAT/);assert.match(t,/B1\. Tern/);assert.match(t,/M1\. Tern \| Link C8 \| id: m1/);assert.match(t,/N1\. Strida/);assert.match(t,/BEFORE YOU REPLY/);assert.match(t,/EXAMPLE OF THE SHAPE/);assert.match(t,/3 items/);
   assert.equal(K.readInput(t.slice(t.indexOf('{"brands"'),t.indexOf('\n\n',t.indexOf('{"brands"'))),{}).recs.length,1);
 });
+
+test('a private maker: values the AI could not find can be closed as not published, and a renamed brand still matches',()=>{
+  const birdy=[{id:'b3',brand:'Birdy',model:'P45',category:'Folding bike',priceGBP:2199}];
+  const ans='{"products":[{"id":"b3","brand":"Birdy","model":"P45","weightKg":11.2,"fork":null,"grips":"Not published","line":"N/A","motor":null,"sourceUrl":"https://example.com/p45"}]}';
+  const r=K.readInput(ans,{}),rec=r.recs[0];rec.match=birdy[0];
+  assert.deepEqual(K.emptyFor(rec).sort(),['fork','grips','line'],'asked for, came back empty, and still missing (motor does not apply to a non-electric bike)');
+  assert.equal(rec.values.weightKg,11.2);
+  rec.match={...birdy[0],na:['fork']};assert.ok(!K.emptyFor(rec).includes('fork'),'already closed');
+  rec.match={...birdy[0],fork:'Rigid'};assert.ok(!K.emptyFor(rec).includes('fork'),'already filled');
+  const f=(brand,model)=>K.findExisting({brand,model},birdy,['Birdy','Tern']);
+  assert.equal(f('Riese & Muller Birdy','P45').p.id,'b3');assert.equal(f('Birdy','Birdy P45').p.id,'b3');assert.equal(f('Tern','P45').p,null);
+});

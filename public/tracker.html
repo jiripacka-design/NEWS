@@ -919,5 +919,12 @@ button.miss:hover{border-color:var(--bl);background:var(--hl)}
 .ap.hs.compact .ap-l{background:var(--bg)}
 .ap.hs.compact .ap-sec h3{position:sticky;left:0}
 @media(max-width:700px){.ap{--lw:110px}}
+
+/* ---- v3.14.3: drag to reorder, not-published cells ---- */
+.ap-card[draggable="true"]{cursor:grab}.ap-card.dragging{opacity:.45}.ap-card.over .ap-pic,.ap-card.empty.over{outline:2px dashed var(--us-ac);outline-offset:3px}
+.ap-pic{position:relative}.ap-grip{position:absolute;left:8px;top:6px;z-index:2;width:22px;height:22px;display:flex;align-items:center;justify-content:center;border-radius:6px;background:rgba(0,0,0,.55);color:#fff;font-size:15px;line-height:1;opacity:0;transition:opacity .15s;pointer-events:none}.ap-card:hover .ap-grip{opacity:1}
+.ap-act .mv{font-size:18px;line-height:1;padding:0 4px}.ap-act .mv:disabled{opacity:.3;cursor:default}
+button.miss.na{border-style:dotted;color:var(--mu);font-weight:500}
+.cl-naempty{display:inline-flex;align-items:center;gap:8px;margin-right:14px;font-size:13px}.cl-naall{margin-top:10px;font-size:13px}
 </style>
 </body></html>

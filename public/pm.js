@@ -384,6 +384,12 @@
     S.cmp.others = [...new Set(S.cmp.others)].filter((id) => prodById(id) && id !== S.cmp.us).slice(0, 5);
     sv('cih_pm_cmp', S.cmp);
   }
+  // Put a model in a new position. The first column is the baseline the others are measured against.
+  function moveCmp(id, to) {
+    const ids = [S.cmp.us, ...S.cmp.others].filter(prodById), from = ids.indexOf(id); if (from < 0) return;
+    ids.splice(from, 1); ids.splice(Math.max(0, Math.min(to, ids.length)), 0, id);
+    S.cmp.us = ids[0]; S.cmp.others = ids.slice(1); fixCmp(); renderMatrix();
+  }
   function addCmp(id) {
     const p = prodById(id); if (!p) return;
     if (id === S.cmp.us || S.cmp.others.includes(id)) return toast(`${prodName(p)} is already in the comparison`);
@@ -395,13 +401,13 @@
   /* =====================  PRODUCT COMPARE (Apple-style: sticky model cards, then large spec sections)  ===================== */
   const MAXCMP = 6; // us + up to 5 competitors
   function headCard(p, i) {
-    if (!p) return `<div class="ap-card empty"><button type="button" class="ap-add" data-pick="${i}"><b>+</b><span>${i === 0 ? 'Choose a model' : 'Add a model'}</span></button></div>`;
+    if (!p) return `<div class="ap-card empty" data-slot="${i}" data-dropend="1"><button type="button" class="ap-add" data-pick="${i}"><b>+</b><span>${i === 0 ? 'Choose a model' : 'Add a model'}</span></button></div>`;
     const mp = modelPic(p), pic = mp || C.pic(p.brand), us = isUs(p.brand), upl = mp || C.picUp(p.brand);
-    return `<div class="ap-card${us ? ' is-us' : ''}"><div class="ap-pic">${pic ? `<img src="${esc(pic)}" class="${upl ? 'up' : ''}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : '<span>🚲</span>'}${i > 0 ? `<button type="button" class="ap-x" data-rm="${esc(p.id)}" aria-label="Remove ${esc(p.model)} from the comparison" title="Remove from the comparison">×</button>` : ''}</div>
+    return `<div class="ap-card${us ? ' is-us' : ''}" draggable="true" data-dragid="${esc(p.id)}" data-slot="${i}"><div class="ap-pic"><span class="ap-grip" title="Drag the card to change the order" aria-hidden="true">⠿</span>${pic ? `<img src="${esc(pic)}" class="${upl ? 'up' : ''}" alt="" draggable="false" referrerpolicy="no-referrer" onerror="this.remove()">` : '<span>🚲</span>'}${i > 0 ? `<button type="button" class="ap-x" data-rm="${esc(p.id)}" aria-label="Remove ${esc(p.model)} from the comparison" title="Remove from the comparison">×</button>` : ''}</div>
       <div class="ap-brand"><button type="button" class="linkbtn" data-open="${esc(p.brand)}">${esc(p.brand)}</button> ${us ? '<span class="pm-us">US</span>' : ''}</div>
       <div class="ap-name">${esc(p.model)}</div>${p.line ? `<div class="ap-line">${esc(p.line)}</div>` : ''}<div class="ap-price">${priceOf(p).v != null ? `From ${priceTxt(p)}` : '<span class="muted">No price yet</span>'}</div>
-      <div class="fillbar" title="${filled(p)} of ${CORE.length + 1} comparable specs filled in"><i style="width:${fillPct(p)}%"></i></div><div class="muted ap-fill">${fillPct(p)}% of specs filled</div>
-      <div class="ap-act"><button type="button" class="linkbtn" data-pick="${i}">Change model</button><button type="button" class="linkbtn" data-edit="${esc(p.id)}">Edit</button><button type="button" class="linkbtn" data-mpic="${esc(p.id)}" title="Add or change a picture of this exact model">Picture</button></div></div>`;
+      <div class="fillbar" title="${filled(p)} of ${CORE.length + 1} key specs filled in. Collect data counts every field, including electric-only ones."><i style="width:${fillPct(p)}%"></i></div><div class="muted ap-fill">${fillPct(p)}% of key specs filled</div>
+      <div class="ap-act"><button type="button" class="linkbtn mv" data-mv="-1" data-mvid="${esc(p.id)}" aria-label="Move ${esc(p.model)} left" title="Move left"${i === 0 ? ' disabled' : ''}>‹</button><button type="button" class="linkbtn mv" data-mv="1" data-mvid="${esc(p.id)}" aria-label="Move ${esc(p.model)} right" title="Move right">›</button><button type="button" class="linkbtn" data-pick="${i}">Change model</button><button type="button" class="linkbtn" data-edit="${esc(p.id)}">Edit</button><button type="button" class="linkbtn" data-mpic="${esc(p.id)}" title="Add or change a picture of this exact model">Picture</button></div></div>`;
   }
   /* Picker: a searchable list, opened from the + card or Change model */
   function pickerHtml() {
@@ -423,7 +429,14 @@
   }
   // A missing value is an action, not a dead end: it opens Collect data for that model.
   const densBar = () => `<span class="ap-ctl"><span class="seg" role="group" aria-label="Row density"><button type="button" data-dens="compact" class="${S.dens === 'compact' ? 'on' : ''}" aria-pressed="${S.dens === 'compact'}">Compact</button><button type="button" data-dens="comfortable" class="${S.dens === 'comfortable' ? 'on' : ''}" aria-pressed="${S.dens === 'comfortable'}">Comfortable</button></span><button type="button" class="linkbtn" data-secall="close">Collapse all</button><button type="button" class="linkbtn" data-secall="open">Expand all</button></span>`;
-  const missBtn = (p, label) => `<button type="button" class="miss" data-fill="${esc(p.id)}" title="Find ${esc(String(label).toLowerCase())} for ${esc(p.model)} in Collect data">+ Add</button>`;
+  // Same rule as Collect data: electric-only specs do not apply to a non-electric bike (shown as a dash), and a spec marked
+  // "not published" is shown as that, not as a gap. Only a value that is really missing gets an Add button.
+  const missBtn = (p, label, key) => {
+    const X = window.CIPM || {}, miss = X.missingKeys ? X.missingKeys(p) : null;
+    if (key && (p.na || []).includes(key)) return `<button type="button" class="miss na" data-fill="${esc(p.id)}" title="Marked as not published. Select to add it anyway.">Not published</button>`;
+    if (miss && key && !miss.has(key)) return '<span class="muted">—</span>';
+    return `<button type="button" class="miss" data-fill="${esc(p.id)}" title="Find ${esc(String(label).toLowerCase())} for ${esc(p.model)} in Collect data">+ Add</button>`;
+  };
   const isEl = (p) => /e-bike|electric/i.test(p.category || '') || !!(p.batteryWh || p.motor);
   const MF0 = () => ({ cat: '', maxP: '', maxW: '', minB: '', el: false });
   const mfOn = () => !!(S.mf.cat || S.mf.maxP || S.mf.maxW || S.mf.minB || S.mf.el);
@@ -488,7 +501,7 @@
           const d = Math.round((v - uv) * 100) / 100;
           if (d !== 0) delta = `<small class="dl${(r.dir === 'low' ? d < 0 : d > 0) ? ' adv' : ''}" title="Compared with ${esc(prodName(us))}">${d > 0 ? '+' : '−'}${r.fmt(Math.abs(d))} vs ${isUs(us.brand) ? 'us' : 'first'}</small>`;
         }
-        return `<div class="ap-c${isUs(p.brand) ? ' is-us' : ''}${best != null && v === best ? ' best' : ''}${worst != null && worst !== best && v === worst ? ' worst' : ''}"><div class="ap-v">${ok ? (r.html ? r.html(v) : esc((r.pre ? r.pre(p) : '') + r.fmt(v))) : (r.k && !['notes', 'src', 'lastVerified'].includes(r.k) ? missBtn(p, r.label) : '<span class="muted">—</span>')}${ok && r.note && r.note(p) ? `<button type="button" class="ni" title="${esc(r.note(p))}" aria-label="Note: ${esc(r.note(p))}">i</button>` : ''}</div>${r.note && r.note(p) ? `<small class="muted ap-note">${esc(r.note(p))}</small>` : ''}${delta}</div>`;
+        return `<div class="ap-c${isUs(p.brand) ? ' is-us' : ''}${best != null && v === best ? ' best' : ''}${worst != null && worst !== best && v === worst ? ' worst' : ''}"><div class="ap-v">${ok ? (r.html ? r.html(v) : esc((r.pre ? r.pre(p) : '') + r.fmt(v))) : (r.k && !['notes', 'src', 'lastVerified'].includes(r.k) ? missBtn(p, r.label, r.k) : '<span class="muted">—</span>')}${ok && r.note && r.note(p) ? `<button type="button" class="ni" title="${esc(r.note(p))}" aria-label="Note: ${esc(r.note(p))}">i</button>` : ''}</div>${r.note && r.note(p) ? `<small class="muted ap-note">${esc(r.note(p))}</small>` : ''}${delta}</div>`;
       }).join('')}</div></div>`;
     });
     flush();
@@ -507,7 +520,7 @@
     });
     const th = (key, label, cls) => `<th class="${cls || ''}"><button type="button" class="sortbtn" data-sort="${key}">${label}${S.sort.k === key ? (S.sort.d > 0 ? ' ▲' : ' ▼') : ''}</button></th>`;
     return `<table class="pm-table"><thead><tr>${th('brand', 'Brand')}${th('model', 'Model')}${th('category', 'Category')}${th('priceGBP', 'Price', 'num')}${th('weightKg', 'Weight', 'num')}${th('vol', 'Folded', 'num')}${th('batteryWh', 'Battery', 'num')}${th('rangeKm', 'Range', 'num')}${th('launch', 'Launch')}${th('lastVerified', 'Verified')}${th('fill', 'Specs', 'num')}<th></th></tr></thead><tbody>
-      ${list.map((p) => `<tr class="${isUs(p.brand) ? 'is-us' : ''}"><td><button type="button" class="linkbtn" data-open="${esc(p.brand)}">${esc(p.brand)}</button></td><td>${esc(p.model)}${discTag(p)}</td><td>${esc(p.category || '—')}</td><td class="num">${priceOf(p).v != null ? priceTxt(p) : missBtn(p, 'price')}</td><td class="num">${p.weightKg != null ? p.weightKg + ' kg' : missBtn(p, 'weight')}</td><td class="num">${vol(p) != null ? Math.round(vol(p)) + ' L' : '—'}</td><td class="num">${p.batteryWh != null ? p.batteryWh + ' Wh' : '—'}</td><td class="num">${p.rangeKm != null ? p.rangeKm + ' km' : '—'}</td><td>${plain(p.launch)}</td><td>${p.lastVerified ? esc(p.lastVerified) : '—'}</td><td class="num">${fillPct(p)}%</td><td class="acts"><button type="button" class="linkbtn" data-cmp="${esc(p.id)}">Compare</button><button type="button" class="linkbtn" data-edit="${esc(p.id)}">Edit</button></td></tr>`).join('') || '<tr><td colspan="11" class="muted">No models match.</td></tr>'}
+      ${list.map((p) => `<tr class="${isUs(p.brand) ? 'is-us' : ''}"><td><button type="button" class="linkbtn" data-open="${esc(p.brand)}">${esc(p.brand)}</button></td><td>${esc(p.model)}${discTag(p)}</td><td>${esc(p.category || '—')}</td><td class="num">${priceOf(p).v != null ? priceTxt(p) : missBtn(p, 'price', 'priceGBP')}</td><td class="num">${p.weightKg != null ? p.weightKg + ' kg' : missBtn(p, 'weight', 'weightKg')}</td><td class="num">${vol(p) != null ? Math.round(vol(p)) + ' L' : '—'}</td><td class="num">${p.batteryWh != null ? p.batteryWh + ' Wh' : '—'}</td><td class="num">${p.rangeKm != null ? p.rangeKm + ' km' : '—'}</td><td>${plain(p.launch)}</td><td>${p.lastVerified ? esc(p.lastVerified) : '—'}</td><td class="num">${fillPct(p)}%</td><td class="acts"><button type="button" class="linkbtn" data-cmp="${esc(p.id)}">Compare</button><button type="button" class="linkbtn" data-edit="${esc(p.id)}">Edit</button></td></tr>`).join('') || '<tr><td colspan="11" class="muted">No models match.</td></tr>'}
       </tbody></table>`;
   }
   /* =====================  CHARTS  ===================== */
@@ -1425,6 +1438,7 @@
       const ad = t.closest('[data-add]'); if (ad) return openModel(null, ad.dataset.add);
       const cm = t.closest('[data-cmp]'); if (cm) { addCmp(cm.dataset.cmp); if (($('.view.active') || {}).id !== 'matrix') go('matrix'); return; }
       const un = t.closest('[data-unc]'); if (un) { S.cmp.others = S.cmp.others.filter((x) => x !== un.dataset.unc); fixCmp(); return renderMatrix(); }
+      const mvb = t.closest('[data-mv]'); if (mvb && !mvb.disabled) { const ids = [S.cmp.us, ...S.cmp.others].filter(prodById), at = ids.indexOf(mvb.dataset.mvid); return moveCmp(mvb.dataset.mvid, at + Number(mvb.dataset.mv)); }
       const dn = t.closest('[data-dens]'); if (dn) { S.dens = dn.dataset.dens === 'comfortable' ? 'comfortable' : 'compact'; sv('cih_pm_dens', S.dens); const ap = $('.ap'); if (ap) { ap.classList.remove('compact', 'comfortable'); ap.classList.add(S.dens); } document.querySelectorAll('[data-dens]').forEach((b) => { const on = b.dataset.dens === S.dens; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); }); return; }
       const st = t.closest('button[data-sec]'); if (st) { const k = st.dataset.sec, shut = !S.secClosed.has(k); shut ? S.secClosed.add(k) : S.secClosed.delete(k); sv('cih_pm_secs', [...S.secClosed]); const sc = st.closest('.ap-sec'); if (sc) sc.classList.toggle('closed', shut); st.setAttribute('aria-expanded', !shut); return; }
       const sa = t.closest('[data-secall]'); if (sa) { const shut = sa.dataset.secall === 'close'; document.querySelectorAll('.ap-sec').forEach((sc) => { const k = sc.dataset.sec; shut ? S.secClosed.add(k) : S.secClosed.delete(k); sc.classList.toggle('closed', shut); const b = sc.querySelector('button[data-sec]'); if (b) b.setAttribute('aria-expanded', !shut); }); sv('cih_pm_secs', [...S.secClosed]); return; }
@@ -1483,6 +1497,12 @@
         try { await api('POST', '/api/tags', { id: t.dataset.id, type: t.value }); const n = C.news.find((x) => x.id === t.dataset.id); if (n) n.evt0 = t.value; C.feed(); toast('Event type saved'); } catch (err) { toast(err.message); }
       }
     });
+    // Drag a card onto another to change the order (the dragged model takes that position).
+    const cardOf = (e) => (e.target.closest ? e.target.closest('.ap-card[data-slot]') : null);
+    document.addEventListener('dragstart', (e) => { const c = e.target.closest && e.target.closest('.ap-card[data-dragid]'); if (!c) return; S.dragId = c.dataset.dragid; if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', S.dragId); } catch (err) { /* ignore */ } } c.classList.add('dragging'); });
+    document.addEventListener('dragover', (e) => { const c = cardOf(e); if (!c || !S.dragId) return; e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; document.querySelectorAll('.ap-card.over').forEach((x) => { if (x !== c) x.classList.remove('over'); }); c.classList.add('over'); });
+    document.addEventListener('drop', (e) => { const c = cardOf(e); if (!c || !S.dragId) return; e.preventDefault(); const id = S.dragId; S.dragId = ''; moveCmp(id, c.dataset.dropend ? 99 : Number(c.dataset.slot)); });
+    document.addEventListener('dragend', () => { S.dragId = ''; document.querySelectorAll('.ap-card.over,.ap-card.dragging').forEach((x) => x.classList.remove('over', 'dragging')); });
     document.addEventListener('input', (e) => {
       if (e.target.id === 'mdlSearch') { S.q = e.target.value; $('#mdlBox').innerHTML = modelsTable(); }
       if (/^mf(MaxP|MaxW|MinB)$/.test(e.target.id)) { const k = { mfMaxP: 'maxP', mfMaxW: 'maxW', mfMinB: 'minB' }[e.target.id]; S.mf[k] = e.target.value; S.mfView = ''; const n = S.products.filter(mfPass).length; $('#mdlBox').innerHTML = modelsTable(); const sm = $('#mfSum'); if (sm) sm.innerHTML = mfOn() ? `${n} of ${S.products.length} models match. ${n ? `<button type="button" class="linkbtn" id="mfCmp">Compare the first ${Math.min(n, MAXCMP)}</button>` : ''}` : ''; const sb = $('#mfSave'); if (sb) sb.disabled = !mfOn(); }

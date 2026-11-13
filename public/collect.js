@@ -382,14 +382,14 @@
     const hasModelCol = (o) => Object.keys(o).some((k) => /^(model|id)$/i.test(k) || keyOf(k) === 'model');
     const brandish = (o) => o && typeof o === 'object' && !hasModelCol(o) && Object.keys(o).some((k) => bkeyOf(k) && !keyOf(k));
     const fromObject = (o) => {
-      const fields = {}, extra = { na: [] };
+      const fields = {}, extra = { na: [], empty: [] };
       Object.keys(o).forEach((rawKey) => {
         const v = o[rawKey], k = keyOf(rawKey) || (rawKey === 'id' ? 'id' : rawKey === 'na' || /^notpublished$/i.test(norm(rawKey)) ? 'na' : null);
         if (k === 'id') extra.id = String(v || ''); else if (k === 'na') extra.na = (Array.isArray(v) ? v : String(v || '').split(',')).map((x) => keyOf(String(x).trim()) || '').filter(Boolean);
-        else if (k === 'brand' || k === 'model') extra[k] = EMPTY.test(squash(v)) ? '' : squash(v); else if (k) fields[k] = v;
+        else if (k === 'brand' || k === 'model') extra[k] = EMPTY.test(squash(v)) ? '' : squash(v); else if (k) { fields[k] = v; if (v == null || (typeof v === 'string' && EMPTY.test(squash(v)))) extra.empty.push(/^fold[HWL]$/.test(k) ? 'fold' : k); }
       });
       const rec = toRecord(fields);
-      return Object.assign(rec, { id: extra.id || '', brand: extra.brand || ctx.brand || '', model: extra.model || ctx.model || '', na: [...new Set(extra.na)], unknown: [] });
+      return Object.assign(rec, { id: extra.id || '', brand: extra.brand || ctx.brand || '', model: extra.model || ctx.model || '', na: [...new Set(extra.na)], empty: [...new Set(extra.empty)], unknown: [] });
     };
     try {
       if (kind === 'json') {
@@ -431,9 +431,18 @@
   const progress = (p) => { const a = applicable(p), done = a.filter((f) => filled(p, f.k) || (p.na || []).includes(f.k)).length; return { done, total: a.length, pct: Math.round((done / a.length) * 100) }; };
   const same = (a, b) => (typeof a === 'number' || typeof b === 'number' ? Math.abs(Number(a) - Number(b)) < 0.01 : norm(a) === norm(b));
 
+  // Fields the AI was asked for but came back empty on (private makers publish few specs). Only fields that still count as missing.
+  function emptyFor(rec) {
+    if (!rec || rec.problem) return [];
+    const ap = new Set(applicable(rec.match || Object.assign({}, rec.values, { category: rec.values && rec.values.category })).map((f) => f.k));
+    return (rec.empty || []).filter((k) => ap.has(k) && !(rec.na || []).includes(k) && !(k in (rec.values || {})) && !(k === 'fold' && 'foldH' in (rec.values || {})) && (!rec.match || (!filled(rec.match, k) && !(rec.match.na || []).includes(k))));
+  }
   function findExisting(rec, products, brands) {
     if (rec.id) { const p = products.find((x) => x.id === rec.id); if (p) return { p, how: 'id' }; }
-    const brand = (brands || []).find((b) => norm(b) === norm(rec.brand)) || rec.brand, mk = norm(rec.model);
+    const nb = norm(rec.brand);
+    let brand = (brands || []).find((b) => norm(b) === nb);
+    if (!brand && nb.length >= 3) { const cand = (brands || []).filter((b) => norm(b).length >= 3 && (nb.includes(norm(b)) || norm(b).includes(nb))); if (cand.length === 1) brand = cand[0]; }
+    brand = brand || rec.brand; const mk = norm(rec.model);
     const mine = products.filter((x) => norm(x.brand) === norm(brand));
     let p = mine.find((x) => norm(x.model) === mk); if (p) return { p, how: 'name', brand };
     const tok = (m) => String(m).toLowerCase().split(/[^a-z0-9]+/).filter((w) => w && !['with', 'the', 'and'].includes(w)), tk = tok(rec.model);
@@ -539,7 +548,8 @@
       'HOW TO FIND VALUES',
       '- Models: the maker\'s own product page first (UK site, prices in GBP incl. VAT). If that fails, a large UK retailer, and say so in notes.',
       '- Brands: the brand\'s own site, annual reports or filings, then trade press (BikeBiz, Cycling Industry News, Bike Europe). Use the latest full year and put it in figuresYear.',
-      '- Never guess, estimate or answer from memory. Sales volumes and revenue are often unpublished: null is then the right answer.',
+      '- Never guess, estimate or answer from memory. Many makers (private companies especially) publish only 10 to 15 of these specs, and sales and revenue are often unpublished. null is the right and expected answer then. Do not keep searching: check the maker\'s page and one retailer, then move on.',
+      '- Spend your effort on the headline keys (price, weight, fold size, wheel size, gears, material, launch, colours, handlebars), fit and warranty keys, and the electric keys. Component keys (frame, fork, contact points, drivetrain, wheels, brakes) are usually only on a full spec table: null if the page does not list them.',
       '- A company\'s own claim is allowed: say "company claim" in notes.',
       '- Several variants on one page: use the base model and name the variant in notes. If only EUR or USD is shown, use priceEUR / priceUSD and leave priceGBP null.',
       '- Fold size: give foldH, foldW and foldL in cm (three separate numbers). Revenue in GBP millions. Battery in Wh (volts x amp-hours if only those are given).',
@@ -570,7 +580,7 @@
       'BEFORE YOU REPLY, CHECK', '- One valid JSON object, nothing before or after it (apart from the CONTINUE line if needed).', '- All numbers bare, all unknowns null, straight quotes, no trailing commas.', `- All ${total} items present, in order, with the exact names and ids.`);
     return L.join('\n');
   }
-  const api = { buildMasterBrief, extractJson, repairJson, BFIELDS, BKEY, bkeyOf, toBrandRecord, diffBrand, buildBrandBrief, FIELDS, LABEL, ALIASES, keyOf, coerce, parseFold, parseSpecText, parseDelimited, detect, readInput, toRecord, isElectric, filled, applicable, missingFor, progress, findExisting, diffRecord, buildBrief, knownFacts };
+  const api = { emptyFor, buildMasterBrief, extractJson, repairJson, BFIELDS, BKEY, bkeyOf, toBrandRecord, diffBrand, buildBrandBrief, FIELDS, LABEL, ALIASES, keyOf, coerce, parseFold, parseSpecText, parseDelimited, detect, readInput, toRecord, isElectric, filled, applicable, missingFor, progress, findExisting, diffRecord, buildBrief, knownFacts };
 
   /* ===================================================================  PAGE  ===================================================================
      v3.11: one brand at a time, in three steps on one card:
@@ -580,7 +590,7 @@
   api.mount = function (X) {
     const { S, api: call, RENDER, mkView, mkNav, go, C } = X, { $, esc, toast } = C;
     const today = () => new Date().toISOString().slice(0, 10);
-    const ui = { text: '', model: '', modelSel: '', imp: null, scope: 'all', bb: '', size: 8, page: 0, wb: '', allFacts: false, method: 'ai', url: '', fetching: false, fetchMsg: '', open: new Set(), aiMode: 'gaps', recheckRead: false, pageImage: '', usePic: true, rc: { results: {}, running: false, done: 0, total: 0, off: {}, failed: [] } };
+    const ui = { text: '', model: '', modelSel: '', imp: null, naEmpty: true, scope: 'all', bb: '', size: 8, page: 0, wb: '', allFacts: false, method: 'ai', url: '', fetching: false, fetchMsg: '', open: new Set(), aiMode: 'gaps', recheckRead: false, pageImage: '', usePic: true, rc: { results: {}, running: false, done: 0, total: 0, off: {}, failed: [] } };
     const STALE = 90, age = (d) => (d ? Math.floor((Date.now() - Date.parse(d)) / 864e5) : Infinity), stale = (p) => p.status !== 'discontinued' && age(p.lastVerified) > STALE, disc = (p) => p.status === 'discontinued';
     const pageOf = (p) => [p.url, p.sourceUrl].find((u) => /^https:\/\//i.test(String(u || ''))) || '';
     const fmtD = (d) => (d ? new Date(d + (d.length === 10 ? 'T12:00:00' : '')).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'never');
@@ -629,8 +639,10 @@
       });
       ui.imp = r; renderPreview(); if (r.notice) toast(r.notice);
     }
+    const emptyKeys = (rec) => (ui.naEmpty ? emptyFor(rec) : []);
+    X.missingKeys = (p) => new Set(missingFor(p).map((f) => f.k));
     const nConfirm = () => (ui.imp && ui.recheckRead ? ui.imp.recs.filter((r) => r.match && !r.problem).length + (ui.imp.brandRecs || []).filter((r) => r.exists).length : 0);
-    function nChosen() { return ui.imp ? ui.imp.recs.filter((r) => r.disc && r.discOn).length + (ui.imp.brandRecs || []).reduce((n, r) => n + r.rows.filter((x) => x.on && x.k !== 'sourceUrl').length + (r.exists ? 0 : 1), 0) + ui.imp.recs.reduce((n, r) => n + (r.problem ? 0 : r.rows.filter((x) => x.on).length) + (r.problem ? 0 : r.na.length ? 1 : 0), 0) : 0; }
+    function nChosen() { return ui.imp ? ui.imp.recs.filter((r) => r.disc && r.discOn).length + (ui.imp.brandRecs || []).reduce((n, r) => n + r.rows.filter((x) => x.on && x.k !== 'sourceUrl').length + (r.exists ? 0 : 1), 0) + ui.imp.recs.reduce((n, r) => n + (r.problem ? 0 : r.rows.filter((x) => x.on).length) + (r.problem ? 0 : r.na.length || emptyKeys(r).length ? 1 : 0), 0) : 0; }
     const stTag = (x) => (x.status === 'new' ? '<span class="cl-st-new">New</span>' : '<span class="cl-st-diff" title="You already have a different value. Tick to replace it.">Replaces</span>');
     function recTable(rows, attr, labels) {
       const body = rows.filter((x) => x.status !== 'same').map((x) => `<tr class="${x.on ? '' : 'off'}"><td class="cl-ck"><input type="checkbox" ${attr}="${x.i}" data-k="${esc(x.k)}"${x.on ? ' checked' : ''} aria-label="Use ${esc(x.label)}"></td><td>${esc(x.label)}${x.hint ? `<div class="muted cl-hint">${esc(x.hint)}</div>` : ''}</td><td class="muted">${esc(x.cur) || '—'}</td><td class="cl-next">${esc(x.next)}</td><td>${stTag(x)}</td></tr>`).join('');
@@ -646,7 +658,7 @@
       const recs = r.recs.map((rec, i) => {
         rec.rows.forEach((x) => { x.i = i; });
         const tag = rec.match ? `<span class="cl-tag">${rec.how === 'near' ? 'Matched to an existing model by name' : 'Existing model'}</span>` : '<span class="cl-tag new">New model: it will be added</span>';
-        return `<div class="cl-rec"><div class="cl-rec-h"><h4>${esc(rec.brand || '?')} ${esc(rec.match ? rec.match.model : rec.model || '?')}</h4>${tag}${rec.na.length ? `<span class="muted">${rec.na.length} marked not published</span>` : ''}</div>
+        return `<div class="cl-rec"><div class="cl-rec-h"><h4>${esc(rec.brand || '?')} ${esc(rec.match ? rec.match.model : rec.model || '?')}</h4>${tag}${rec.na.length + emptyKeys(rec).length ? `<span class="muted">${rec.na.length + emptyKeys(rec).length} marked not published</span>` : ''}</div>
           ${rec.disc ? `<label class="cl-picoffer"><input type="checkbox" data-discr="${i}"${rec.discOn ? ' checked' : ''}><span><strong>Mark as discontinued.</strong> The answer says: “${esc(String(rec.values.notes).slice(0, 160))}”</span></label>` : ''}
           ${rec.problem ? `<div class="cl-warn">${esc(rec.problem)}</div>` : recTable(rec.rows, 'data-r', { rejected: rec.rejected, L: LABEL })}
           ${rec.notes.length ? `<div class="sub cl-conv">Converted: ${esc(rec.notes.join('; '))}</div>` : ''}
@@ -660,7 +672,7 @@
       box.innerHTML = `<div class="cl-sec cl-check"><div class="cl-sec-h"><span class="cl-num">3</span><div><h3>Check and save</h3><div class="sub">Read as ${kindTxt}. ${ui.recheckRead ? 'This is a re-check: new values and values that have changed are ticked. Everything in the answer is marked verified today when you save.' : 'New values are ticked; values that would replace what you have are not.'}</div></div></div>
         <div class="cl-sum"><span class="ok">${nNew} new</span>${nDiff ? `<span class="warn">${nDiff} would replace</span>` : ''}${nBad ? `<span class="bad">${nBad} could not be used</span>` : ''}${nSame ? `<span class="muted">${nSame} already saved</span>` : ''}</div>
         ${recs}${brs}
-        <div class="cl-savebar">${picRow()}<button type="button" class="primary" id="clApply"${n || nConfirm() ? '' : ' disabled'}>${saveLabel(n)}</button><button type="button" class="imagebtn" id="clClear">Discard</button><span class="sub">AI answers and web pages can be wrong: glance down the “Checked value” column before saving.</span></div></div>`;
+        <div class="cl-savebar">${picRow()}${ui.imp && ui.imp.recs.some((r) => emptyFor(Object.assign({}, r, { empty: r.empty })).length) ? `<label class="chk cl-naempty" title="Many makers do not publish every spec. Ticked: values the AI could not find stop showing as missing. You can still add them later."><input type="checkbox" id="clNaEmpty"${ui.naEmpty ? ' checked' : ''}> Mark the ${ui.imp.recs.reduce((n, r) => n + emptyFor(r).length, 0)} values the AI could not find as “not published”</label>` : ''}<button type="button" class="primary" id="clApply"${n || nConfirm() ? '' : ' disabled'}>${saveLabel(n)}</button><button type="button" class="imagebtn" id="clClear">Discard</button><span class="sub">AI answers and web pages can be wrong: glance down the “Checked value” column before saving.</span></div></div>`;
     }
     const saveLabel = (n) => (ui.recheckRead ? (n ? `Save ${pl(n, 'change')} and mark as verified` : 'Mark as verified today') : `Save ${pl(n, 'value')}`);
     // A picture found when reading a product page: offered for the model it belongs to.
@@ -675,7 +687,7 @@
         if (rec.problem) return;
         const o = { brand: rec.brand, model: rec.match ? rec.match.model : rec.model }; if (rec.match) o.id = rec.match.id;
         let n = 0; rec.rows.filter((x) => x.on).forEach((x) => x.keys.forEach((k) => { o[k] = rec.values[k]; n++; }));
-        const base = rec.match ? (rec.match.na || []) : [], na = [...new Set([...base, ...rec.na])].filter((k) => !(k in o) && !(k === 'fold' && 'foldH' in o));
+        const base = rec.match ? (rec.match.na || []) : [], na = [...new Set([...base, ...rec.na, ...emptyKeys(rec)])].filter((k) => !(k in o) && !(k === 'fold' && 'foldH' in o));
         if (na.length !== base.length || na.some((k) => !base.includes(k))) { o.na = na; n++; }
         if (rec.disc && rec.discOn) { o.status = 'discontinued'; n++; }
         if (n || (ui.recheckRead && rec.match)) { o.lastVerified = today(); list.push(o); }
@@ -702,7 +714,7 @@
         for (const rec of news) { const w = (rec.rows.find((x) => x.k === 'website') || {}).on ? rec.values.website : ''; const r0 = await call('POST', '/api/brands', { addCompetitor: { name: rec.brand, category: 'Folding bike', website: w || '', createSources: true } }); X.setBrandData(r0); }
         if (news.length) X.applyBrands();
         const msg = [];
-        if (list.length) { const r = await call('POST', '/api/products', { products: list, via: ui.recheckRead ? 'ai-check' : 'collect' }); S.products = r.products; msg.push(`${pl(r.added, 'model')} added, ${r.updated} updated`); }
+        if (list.length) { const r = await call('POST', '/api/products', { products: list, via: ui.recheckRead ? 'ai-check' : 'collect', lenient: true }); S.products = r.products; msg.push(`${pl(r.added, 'model')} added, ${r.updated} updated`); const sk = [...new Set((r.dropped || []).flatMap((d) => d.fields))]; if (sk.length) msg.push(`skipped values in a format that could not be accepted: ${sk.join(', ')}`); }
         if (nb) { const r = await call('POST', '/api/brands', { updates: bups, via: ui.recheckRead ? 'ai-check' : 'collect' }); X.setBrandData(r); X.applyBrands(); msg.push(`${pl(nb, 'brand')} updated`); }
         if (news.length) msg.push(pl(news.length, 'new competitor'));
         if (pic) { const m = picRec.match || S.products.find((p) => p.brand === picRec.brand && p.model.toLowerCase() === String(picRec.model || '').toLowerCase()); if (m) { try { await X.autoPicture(m.id, pic); msg.push('picture saved'); } catch (err) { msg.push('the picture could not be saved (' + err.message + ')'); } } }
@@ -902,6 +914,17 @@
         <div class="cl-add"><span class="bf-l">Add a model</span><div class="cl-add-row"><input class="field" id="nmName" placeholder="Model name, e.g. C Line 4-speed"><input class="field" id="nmLine" placeholder="Line, e.g. C Line"><input class="field" id="nmPrice" placeholder="Price £ (optional)" inputmode="decimal"><button type="button" class="imagebtn" id="clAddModel">Add model</button></div></div>`;
     }
 
+    async function markRestNa() {
+      const ms = S.products.filter((p) => p.brand === ui.wb && !disc(p)).map((p) => ({ p, m: missingFor(p) })).filter((x) => x.m.length);
+      if (!ms.length) return;
+      const n = ms.reduce((a, x) => a + x.m.length, 0);
+      if (!confirm(`Mark ${n} unfilled specs across ${pl(ms.length, 'model')} of ${ui.wb} as “not published”?\n\nThey stop counting as missing. You can still fill any of them in later.`)) return;
+      try {
+        const list = ms.map((x) => ({ id: x.p.id, brand: x.p.brand, model: x.p.model, na: [...new Set([...(x.p.na || []), ...x.m.map((f) => f.k)])], lastVerified: today() }));
+        const r = await call('POST', '/api/products', { products: list, via: 'collect', lenient: true }); S.products = r.products; toast(`${n} specs marked as not published`); renderList(); renderBrief();
+      } catch (e) { toast('Not saved: ' + e.message); }
+    }
+
     /* ----- step 1: what is missing ----- */
     function missingHtml(b) {
       const st = factState(b), ms = S.products.filter((p) => p.brand === b && !disc(p)).map((p) => ({ p, m: missingFor(p) })).sort((x, y) => y.m.length - x.m.length);
@@ -909,7 +932,7 @@
       const models = ms.length ? ms.map((x) => `<button type="button" class="cl-gap${x.m.length ? '' : ' done'}" data-gomodel="${esc(x.p.id)}">${esc(x.p.model)} <b>${x.m.length || '✓'}</b></button>`).join('') : '<span class="muted">No models tracked yet. Read a product page or ask an AI to find them.</span>';
       const old = S.products.filter((x) => x.brand === b && stale(x)), fOld = age((S.brands[b] || {}).lastVerified) > STALE;
       const oldHtml = old.length || fOld ? `<div class="cl-miss-old"><div class="cl-miss-l">Out of date <span class="muted">not verified for ${STALE} days</span></div><div class="cl-gaps">${fOld ? '<button type="button" class="cl-gap old" data-rcai="1">Company facts</button>' : ''}${old.map((x) => `<button type="button" class="cl-gap old" data-gomodel="${esc(x.id)}">${esc(x.model)}</button>`).join('')}</div></div>` : '';
-      return `${oldHtml}<div class="cl-miss"><div><div class="cl-miss-l">Company facts <span class="muted">${st.missing.length}</span></div><div class="cl-gaps">${facts}</div></div><div><div class="cl-miss-l">Model specs <span class="muted">${ms.reduce((a, x) => a + x.m.length, 0)}</span></div><div class="cl-gaps">${models}</div></div></div>`;
+      return `${oldHtml}<div class="cl-miss"><div><div class="cl-miss-l">Company facts <span class="muted">${st.missing.length}</span></div><div class="cl-gaps">${facts}</div></div><div><div class="cl-miss-l">Model specs <span class="muted">${ms.reduce((a, x) => a + x.m.length, 0)}</span></div><div class="cl-gaps">${models}</div>${ms.some((x) => x.m.length) ? `<div class="cl-naall"><button type="button" class="linkbtn" id="clNaAll" title="For makers that do not publish these details. They stop showing as missing; you can still fill any of them in later.">Cannot be found: mark the rest as not published</button></div>` : ''}</div></div>`;
     }
 
     /* ----- step 2: the four ways to get the details ----- */
@@ -1102,6 +1125,7 @@
       if (t.id === 'clSaveFacts') return saveFacts();
       if (t.id === 'clBulkBtn') { const d = $('#clBulk', root); d.open = true; return d.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
       if (t.dataset.gofact) { ui.allFacts = false; if (ui.method !== 'type') setMethod('type'); return jumpTo($('#bf-' + t.dataset.gofact, root)); }
+      if (t.id === 'clNaAll') return markRestNa();
       if (t.dataset.gomodel) { ui.open.add(t.dataset.gomodel); if (ui.method !== 'type') setMethod('type'); else setMethodBody(); const d = root.querySelector(`details.cl-model[data-id="${t.dataset.gomodel}"]`); if (d) d.open = true; return jumpTo(d); }
       if (t.id === 'clNext') { const order = rankBrands().filter((b) => brandProgress(b).gaps && b !== ui.wb), i = order.findIndex((b) => tier(b) > tier(ui.wb) || (tier(b) === tier(ui.wb) && brandProgress(b).gaps <= brandProgress(ui.wb).gaps)); const n = order[i >= 0 ? i : 0]; return n ? selectBrand(n, true) : toast('Every other brand is complete'); }
       if (t.id === 'clAddModel') return addModel();
@@ -1122,6 +1146,7 @@
       if (t.dataset.bna != null) { const row = t.closest('.bf'); if (row) row.querySelectorAll('input.field,input[data-boffer]').forEach((i) => { i.disabled = t.checked; }); return; }
       if (t.dataset.discr != null) { const rec = ui.imp.recs[+t.dataset.discr]; rec.discOn = t.checked; return updateSave(); }
       if (t.id === 'clUsePic') { ui.usePic = t.checked; return updateSave(); }
+      if (t.id === 'clNaEmpty') { ui.naEmpty = t.checked; return renderPreview(); }
       if (t.dataset.rck) { if (t.checked) delete ui.rc.off[t.dataset.rck]; else ui.rc.off[t.dataset.rck] = 1; t.closest('tr, label').classList.toggle('off', !t.checked); const b = $('#clRcSave', root), n = rcChosen(); if (b) { b.disabled = !n; b.textContent = `Save ${pl(n, 'change')}`; } return; }
       if (t.dataset.r != null && t.dataset.k) { const rec = ui.imp.recs[+t.dataset.r], row = rec.rows.find((x) => x.k === t.dataset.k); if (row) row.on = t.checked; t.closest('tr').classList.toggle('off', !t.checked); return updateSave(); }
       if (t.dataset.br != null && t.dataset.k) { const rec = ui.imp.brandRecs[+t.dataset.br], row = rec.rows.find((x) => x.k === t.dataset.k); if (row) row.on = t.checked; t.closest('tr').classList.toggle('off', !t.checked); if (row && t.checked && (row.k === 'units' || row.k === 'revenueGBPm')) { const y = rec.rows.find((x) => x.k === 'figuresYear'); if (y && y.status !== 'same') { y.on = true; const cb = root.querySelector(`input[data-br="${t.dataset.br}"][data-k="figuresYear"]`); if (cb) { cb.checked = true; cb.closest('tr').classList.remove('off'); } } } return updateSave(); }
