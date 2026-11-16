@@ -7,14 +7,14 @@ Next.js app for Vercel: a password-protected tracker (news scanner, social watch
 2. Environment variables: `SITE_PASSWORD`, `SESSION_SECRET` (long random), `CRON_SECRET` (different long random). Connect a Vercel Blob store (private stores work).
 3. Optional, personal sign-ins: `SITE_USERS` = `Jiri:password1, Anna:password2` (each person signs in with their own name and password; the shared `SITE_PASSWORD` then stops working). Without it, people sign in with the shared password and type their name, which is shown on their changes.
 4. Optional email alerts (market changes, at most once a day): `RESEND_API_KEY` + `ALERTS_TO` (falls back to `DIGEST_TO`), optional `SITE_URL` for the link in the email.
-5. Optional digest: `SLACK_WEBHOOK_URL`, or `RESEND_API_KEY` + `DIGEST_TO` (+ `DIGEST_FROM`). It sends Mondays 07:00 UTC; use **Send now** on the Watchlist to test.
+5. Optional digest: `SLACK_WEBHOOK_URL`, or `RESEND_API_KEY` + `DIGEST_TO` (+ `DIGEST_FROM`). It sends Mondays at about 08:00 UTC, after that morning's scan; use **Send now** on the Watchlist to test.
 4. Redeploy (without build cache) and check the login screen appears first.
 
 Local development: `CI_LOCAL_STORE=./.data npm run dev` keeps data on disk instead of Blob. Tests: `npm test`.
 
 ## What is in it
 - Sections run across the top: **News & updates** (opening page), **Insights** (watchlist, momentum, portfolio and volumes, price chart, regions, activity, data gaps), **Social watch**, **Product Comparison** (compare up to 6), **Competitors** (profiles, company panel, where-they-sell map, pictures), **Sources** (source manager and scanner status).
-- The scanner reads 129+ sources daily (and on **Run scan**); add a website or feed under Sources > Add source.
+- The scanner reads 129+ sources once a day, at about 07:50 UTC (and whenever you press **Run scan**). On Vercel's free plan a daily job can start any time within its hour (07:00 to 07:59 UTC), and the clock is UTC: that is 07:50 in London in winter and 08:50 in summer. The open page does not poll; it loads the news when opened and again if you return to the tab after 30 minutes; add a website or feed under Sources > Add source.
 
 ## v3.13.0
 1. **Price history.** Every list price saved (by hand, Collect data or a re-check) and every street price read is kept with its date. **Insights › Charts › Price history** draws each model's price over time with street prices as dots, and lists every change (was, now, %, who or what found it).

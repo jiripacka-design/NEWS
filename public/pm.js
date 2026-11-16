@@ -8,7 +8,7 @@
   if (!C || !E) { console.error('pm.js: tracker core or events.js missing'); return; }
   const { $, $$, esc, toast } = C;
   const REG = ['US', 'EMEA', 'APAC', 'CHINA'], CATS = ['Folding bike', 'Folding e-bike', 'E-bike', 'Cargo e-bike'], THR = ['High', 'Medium', 'Low'];
-  const S = { brands: {}, products: [], win: 30, cmp: { us: '', others: [] }, sort: { k: 'brand', d: 1 }, q: '', profile: '', digest: null, removed: [], arch: 'hide', showEmpty: false, diff: false, wide: true, insTab: 'markets', pfSort: { k: 'u', d: -1 }, rgSort: { k: '', d: 1 }, mf: { cat: '', maxP: '', maxW: '', minB: '', el: false }, views: [], mfView: '', cview: 'ladder', ladSort: 'cheap', rankBy: 'weightKg', cscale: 'log', chHide: new Set(), chFind: '', mkSel: 'all', mkMode: 'count', mkC: '', mkAbsent: false, pickSlot: 0, pickQ: '' };
+  const S = { brands: {}, products: [], win: 30, cmp: { us: '', others: [] }, sort: { k: 'brand', d: 1 }, q: '', profile: '', digest: null, removed: [], arch: 'hide', showEmpty: false, diff: false, wide: true, insTab: 'markets', pfSort: { k: 'u', d: -1 }, rgSort: { k: '', d: 1 }, fq: '', mf: { cat: '', maxP: '', maxW: '', minB: '', el: false }, views: [], mfView: '', cview: 'ladder', ladSort: 'cheap', rankBy: 'weightKg', cscale: 'log', chHide: new Set(), chFind: '', mkSel: 'all', mkMode: 'count', mkC: '', mkAbsent: false, pickSlot: 0, pickQ: '' };
   const slug = (t) => String(t).toLowerCase().replace(/[^a-z]+/g, '-').replace(/^-|-$/g, '');
   const sv = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } };
   const ld = (k, f) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? f : v; } catch (e) { return f; } };
@@ -403,7 +403,7 @@
   function headCard(p, i) {
     if (!p) return `<div class="ap-card empty" data-slot="${i}" data-dropend="1"><button type="button" class="ap-add" data-pick="${i}"><b>+</b><span>${i === 0 ? 'Choose a model' : 'Add a model'}</span></button></div>`;
     const mp = modelPic(p), pic = mp || C.pic(p.brand), us = isUs(p.brand), upl = mp || C.picUp(p.brand);
-    return `<div class="ap-card${us ? ' is-us' : ''}" draggable="true" data-dragid="${esc(p.id)}" data-slot="${i}"><div class="ap-pic"><span class="ap-grip" title="Drag the card to change the order" aria-hidden="true">⠿</span>${pic ? `<img src="${esc(pic)}" class="${upl ? 'up' : ''}" alt="" draggable="false" referrerpolicy="no-referrer" onerror="this.remove()">` : '<span>🚲</span>'}${i > 0 ? `<button type="button" class="ap-x" data-rm="${esc(p.id)}" aria-label="Remove ${esc(p.model)} from the comparison" title="Remove from the comparison">×</button>` : ''}</div>
+    return `<div class="ap-card${us ? ' is-us' : ''}" draggable="true" data-dragid="${esc(p.id)}" data-slot="${i}"><div class="ap-pic"><span class="ap-grip" title="Drag to swap places with another bike" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4 3 8l4 4M3 8h14M17 12l4 4-4 4M21 16H7"/></svg><span>Drag</span></span>${pic ? `<img src="${esc(pic)}" class="${upl ? 'up' : ''}" alt="" draggable="false" referrerpolicy="no-referrer" onerror="this.remove()">` : '<span>🚲</span>'}${i > 0 ? `<button type="button" class="ap-x" data-rm="${esc(p.id)}" aria-label="Remove ${esc(p.model)} from the comparison" title="Remove from the comparison">×</button>` : ''}</div>
       <div class="ap-brand"><button type="button" class="linkbtn" data-open="${esc(p.brand)}">${esc(p.brand)}</button> ${us ? '<span class="pm-us">US</span>' : ''}</div>
       <div class="ap-name">${esc(p.model)}</div>${p.line ? `<div class="ap-line">${esc(p.line)}</div>` : ''}<div class="ap-price">${priceOf(p).v != null ? `From ${priceTxt(p)}` : '<span class="muted">No price yet</span>'}</div>
       <div class="fillbar" title="${filled(p)} of ${CORE.length + 1} key specs filled in. Collect data counts every field, including electric-only ones."><i style="width:${fillPct(p)}%"></i></div><div class="muted ap-fill">${fillPct(p)}% of key specs filled</div>
@@ -429,6 +429,48 @@
   }
   // A missing value is an action, not a dead end: it opens Collect data for that model.
   const densBar = () => `<span class="ap-ctl"><span class="seg" role="group" aria-label="Row density"><button type="button" data-dens="compact" class="${S.dens === 'compact' ? 'on' : ''}" aria-pressed="${S.dens === 'compact'}">Compact</button><button type="button" data-dens="comfortable" class="${S.dens === 'comfortable' ? 'on' : ''}" aria-pressed="${S.dens === 'comfortable'}">Comfortable</button></span><button type="button" class="linkbtn" data-secall="close">Collapse all</button><button type="button" class="linkbtn" data-secall="open">Expand all</button></span>`;
+  /* ----- search every spec: "rack" lists every bike that has a rack ----- */
+  const NOISE = /^(none|no|n\/a|na|not (included|fitted|available|published|stated|applicable)|without|-+|—)$/i;
+  const meaningful = (v) => v != null && v !== '' && !(typeof v === 'string' && NOISE.test(v.trim()));
+  const SEARCH_SKIP = ['lastVerified', 'src', 'vol', 'notes']; // notes are free text ("rack differs between versions"), so they do not count as having a spec
+  // A term matches from the start of a word: "rack" finds "Rack" and "roller-rack" but not "bottom bracket" or "track".
+  const wordHit = (text, t) => new RegExp('(^|[^a-z0-9])' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(String(text).toLowerCase());
+  const searchTerms = (q) => String(q).toLowerCase().split(/\s+/).filter((t) => t.length >= 2).map((t) => (t.length > 3 && t.endsWith('s') ? t.slice(0, -1) : t));
+  const searchRows = () => ROWS.filter((r) => r.k && r.get && !SEARCH_SKIP.includes(r.k));
+  // Every term must match. A term matches a spec by its name (only when the bike has a real value for it) or by the value itself,
+  // and also the brand, model or category. "rack electric" = electric bikes with a rack. A value like "None" does not count as having it.
+  function searchModels(q) {
+    const terms = searchTerms(q); if (!terms.length) return [];
+    const rows = searchRows();
+    return sale().map((p) => {
+      const hits = [], base = `${p.brand} ${p.model} ${p.category || ''}`.toLowerCase();
+      for (const t of terms) {
+        let found = wordHit(base, t);
+        rows.forEach((r) => {
+          const v = r.get(p); if (!meaningful(v)) return;
+          const shown = String(r.fmt ? r.fmt(v) : v);
+          if (wordHit(r.label, t) || wordHit(shown, t)) { found = true; if (!hits.some((h) => h.label === r.label)) hits.push({ label: r.label, value: shown }); }
+        });
+        if (!found) return null;
+      }
+      return { p, hits };
+    }).filter(Boolean).sort((a, b) => (isUs(b.p.brand) - isUs(a.p.brand)) || a.p.brand.localeCompare(b.p.brand) || a.p.model.localeCompare(b.p.model));
+  }
+  const SEARCH_HINTS = ['rack', 'mudguards', 'lighting', 'front carrier', 'electric', 'titanium', 'hub gear'];
+  function foundHtml() {
+    const q = S.fq.trim();
+    if (!q) return `<div class="found-hint"><span class="muted">Try</span>${SEARCH_HINTS.map((h) => `<button type="button" class="chip" data-fq="${esc(h)}">${esc(h)}</button>`).join('')}</div>`;
+    if (!searchTerms(q).length) return '<div class="sub">Type at least two letters.</div>';
+    const res = searchModels(q), inCmp = new Set([S.cmp.us, ...S.cmp.others]), terms = searchTerms(q);
+    // A search for one spec name: say how many bikes have nothing recorded for it, so a short list is not mistaken for "no others have one"
+    let note = '';
+    const named = terms.length === 1 ? searchRows().filter((r) => wordHit(r.label, terms[0])) : [];
+    if (named.length === 1) { const r = named[0], unk = sale().filter((p) => !meaningful(r.get(p)) && !(p.na || []).includes(r.k) && !(typeof r.get(p) === 'string' && r.get(p).trim() !== '')).length; if (unk) note = `<div class="sub found-note">${unk} ${unk === 1 ? 'bike has' : 'bikes have'} no ${esc(r.label.toLowerCase())} information recorded yet, so ${unk === 1 ? 'it is' : 'they are'} not in this list. <button type="button" class="linkbtn" data-go="collect">Fill the gaps in Collect data</button></div>`; }
+    if (!res.length) return `<div class="sub">No bike has “${esc(q)}”. Only specs that are filled in are searched.</div>${note}`;
+    const rows = res.map(({ p, hits }) => `<div class="found-r"><div class="found-n"><button type="button" class="linkbtn" data-open="${esc(p.brand)}">${esc(p.brand)}</button> <strong>${esc(p.model)}</strong>${isUs(p.brand) ? '<span class="pm-us">US</span>' : ''}<span class="muted found-p">${priceOf(p).v != null ? priceTxt(p) : ''}</span></div><div class="found-c">${hits.slice(0, 4).map((h) => `<span class="fchip"><b>${esc(h.label)}</b> ${esc(h.value.length > 44 ? h.value.slice(0, 43) + '…' : h.value)}</span>`).join('')}${hits.length > 4 ? `<span class="muted">+${hits.length - 4} more</span>` : ''}</div><div class="found-a">${inCmp.has(p.id) ? '<span class="muted">In comparison</span>' : `<button type="button" class="imagebtn" data-cmp="${esc(p.id)}">Compare</button>`}</div></div>`).join('');
+    return `<div class="found-h"><strong>${res.length} ${res.length === 1 ? 'bike matches' : 'bikes match'} “${esc(q)}”</strong>${res.length > 1 ? `<button type="button" class="imagebtn" id="fdCmp">Compare the first ${Math.min(res.length, MAXCMP)}</button>` : ''}<button type="button" class="linkbtn" id="fdClear">Clear search</button></div>${note}<div class="found-l">${rows}</div>`;
+  }
+  const searchPanel = () => `<div class="panel cmp-search"><label class="ctl"><span>Search every spec</span><input class="field" id="cmpSearch" type="search" autocomplete="off" placeholder="Try “rack”, “mudguards”, “titanium”, “Schwalbe”, “electric rack”…" value="${esc(S.fq)}"></label><div id="cmpFound">${foundHtml()}</div></div>`;
   // Same rule as Collect data: electric-only specs do not apply to a non-electric bike (shown as a dash), and a spec marked
   // "not published" is shown as that, not as a gap. Only a value that is really missing gets an Add button.
   const missBtn = (p, label, key) => {
@@ -506,7 +548,15 @@
     });
     flush();
     const hs = n >= 5 || (window.innerWidth || 1200) < 1000;
-    return `<div class="ap-bar">${densBar()}</div><div class="ap ${S.dens}${hs ? ' hs' : ''}" style="${style}"><div class="ap-head"><div class="ap-cards" style="${style}">${slots.map((p, i) => headCard(p, i)).join('')}</div></div><div class="ap-stick" aria-label="Models being compared"><div class="ap-vals" style="${style}">${slots.map((p) => (p ? `<div class="ap-sn"><span>${esc(p.brand)}</span><strong>${esc(p.model)}</strong></div>` : '<div></div>')).join('')}</div></div>${out || '<div class="source-empty">Nothing to show with these settings.</div>'}</div>
+    const cards = `<div class="ap-head"><div class="ap-cards" style="${style}">${slots.map((p, i) => headCard(p, i)).join('')}</div></div>`;
+    const names = `<div class="ap-vals" style="${style}">${slots.map((p) => (p ? `<div class="ap-sn"><span>${esc(p.brand)}</span><strong>${esc(p.model)}</strong></div>` : '<div></div>')).join('')}</div>`;
+    const body = out || '<div class="source-empty">Nothing to show with these settings.</div>';
+    // Wide comparison: three bands that scroll sideways together. The names band sits outside any scrolling box, so it can stay
+    // pinned to the top of the screen while the pictures scroll away.
+    const apHtml = hs
+      ? `<div class="ap ${S.dens} hs" style="${style}"><div class="ap-band" data-x>${'<div class="ap-in">' + cards + '</div>'}</div><div class="ap-stick" aria-label="Models being compared"><div class="ap-band" data-x><div class="ap-in">${names}</div></div></div><div class="ap-band ap-bandb" data-x><div class="ap-in">${body}</div></div></div>`
+      : `<div class="ap ${S.dens}" style="${style}">${cards}<div class="ap-stick" aria-label="Models being compared">${names}</div>${body}</div>`;
+    return `<div class="ap-bar">${densBar()}</div>${apHtml}
       <div class="sub ap-foot"><label class="chk"><input type="checkbox" id="showDiff"${S.diff ? ' checked' : ''}> Show only differences</label> &nbsp; <label class="chk"><input type="checkbox" id="showEmpty"${S.showEmpty ? ' checked' : ''}> Show rows with no data</label> &nbsp; ${densBar()}${hidden ? ` &nbsp; ${hidden} row${hidden === 1 ? '' : 's'} hidden` : ''} &nbsp; <span class="legend-best"></span> best value in the row, <span class="legend-worst"></span> weakest. Orange means that model is ahead of the first column on that spec.${hs ? ' Scroll sideways: the first model stays in view.' : ''}</div>`;
   }
   // Re-draw only the filter bar and the table, so typing in a filter box is not interrupted.
@@ -793,6 +843,7 @@
     const noModels = C.brands.filter((b) => !S.products.some((p) => p.brand === b));
     $('#matrix').innerHTML = `<div class="head"><div><h2>Product Comparison</h2><div class="sub">Compare up to ${MAXCMP} models side by side. Select + to add a model, × to take one out. Us: <strong>${esc(usName())}</strong>.</div></div>
       <div class="source-actions"><button type="button" class="primary" id="addModel">Add model</button><button type="button" class="imagebtn" id="loadStarter">Load researched data</button><button type="button" class="imagebtn" data-go="collect" title="Import specs from a spreadsheet, pasted text or an AI answer, or download a spreadsheet to fill in">Import / export data</button><button type="button" class="imagebtn" id="bcOpen" title="A one-page sheet for the shop floor: our model against its closest rivals, where we win, objections to expect, and what we know about them">Battle card</button><button type="button" class="imagebtn" id="toggleWide" title="Use the whole width of the screen for the comparison">${S.wide ? 'Standard width' : 'Full width'}</button><input type="file" id="csvFile" accept=".csv,text/csv" hidden></div></div>
+      ${searchPanel()}
       <div class="panel ap-panel">${matrixTable()}</div>
       ${winLose()}
       <div class="panel"><div class="chart-head"><div><h3>All models</h3><div class="sub">${S.products.length} saved. Select Export CSV to get a spreadsheet to fill in (brands with no models appear as empty rows), then Import CSV.</div></div><input class="field" id="mdlSearch" placeholder="Filter models" value="${esc(S.q)}"></div>${filterBar()}<div class="tbl-wrap" id="mdlBox">${modelsTable()}</div>
@@ -1438,6 +1489,9 @@
       const ad = t.closest('[data-add]'); if (ad) return openModel(null, ad.dataset.add);
       const cm = t.closest('[data-cmp]'); if (cm) { addCmp(cm.dataset.cmp); if (($('.view.active') || {}).id !== 'matrix') go('matrix'); return; }
       const un = t.closest('[data-unc]'); if (un) { S.cmp.others = S.cmp.others.filter((x) => x !== un.dataset.unc); fixCmp(); return renderMatrix(); }
+      const fqb = t.closest('[data-fq]'); if (fqb) { S.fq = fqb.dataset.fq; const i = $('#cmpSearch'); if (i) { i.value = S.fq; i.focus(); } const f = $('#cmpFound'); if (f) f.innerHTML = foundHtml(); return; }
+      if (t.id === 'fdClear') { S.fq = ''; const i = $('#cmpSearch'); if (i) { i.value = ''; i.focus(); } const f = $('#cmpFound'); if (f) f.innerHTML = foundHtml(); return; }
+      if (t.id === 'fdCmp') { const ids = searchModels(S.fq).map((x) => x.p).sort((a, b) => (isUs(b.brand) - isUs(a.brand)) || (priceOf(a).v == null) - (priceOf(b).v == null) || priceOf(a).v - priceOf(b).v).map((p) => p.id).slice(0, MAXCMP); if (!ids.length) return; S.cmp.us = ids.find((id) => isUs(prodById(id).brand)) || ids[0]; S.cmp.others = ids.filter((id) => id !== S.cmp.us); fixCmp(); return renderMatrix(); }
       const mvb = t.closest('[data-mv]'); if (mvb && !mvb.disabled) { const ids = [S.cmp.us, ...S.cmp.others].filter(prodById), at = ids.indexOf(mvb.dataset.mvid); return moveCmp(mvb.dataset.mvid, at + Number(mvb.dataset.mv)); }
       const dn = t.closest('[data-dens]'); if (dn) { S.dens = dn.dataset.dens === 'comfortable' ? 'comfortable' : 'compact'; sv('cih_pm_dens', S.dens); const ap = $('.ap'); if (ap) { ap.classList.remove('compact', 'comfortable'); ap.classList.add(S.dens); } document.querySelectorAll('[data-dens]').forEach((b) => { const on = b.dataset.dens === S.dens; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); }); return; }
       const st = t.closest('button[data-sec]'); if (st) { const k = st.dataset.sec, shut = !S.secClosed.has(k); shut ? S.secClosed.add(k) : S.secClosed.delete(k); sv('cih_pm_secs', [...S.secClosed]); const sc = st.closest('.ap-sec'); if (sc) sc.classList.toggle('closed', shut); st.setAttribute('aria-expanded', !shut); return; }
@@ -1497,13 +1551,16 @@
         try { await api('POST', '/api/tags', { id: t.dataset.id, type: t.value }); const n = C.news.find((x) => x.id === t.dataset.id); if (n) n.evt0 = t.value; C.feed(); toast('Event type saved'); } catch (err) { toast(err.message); }
       }
     });
+    // The three bands of a wide comparison scroll together.
+    document.addEventListener('scroll', (e) => { const t = e.target; if (!t || !t.classList || !t.classList.contains('ap-band')) return; const l = t.scrollLeft; document.querySelectorAll('.ap-band').forEach((x) => { if (x !== t && x.scrollLeft !== l) x.scrollLeft = l; }); }, true);
     // Drag a card onto another to change the order (the dragged model takes that position).
     const cardOf = (e) => (e.target.closest ? e.target.closest('.ap-card[data-slot]') : null);
-    document.addEventListener('dragstart', (e) => { const c = e.target.closest && e.target.closest('.ap-card[data-dragid]'); if (!c) return; S.dragId = c.dataset.dragid; if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', S.dragId); } catch (err) { /* ignore */ } } c.classList.add('dragging'); });
+    document.addEventListener('dragstart', (e) => { const c = e.target.closest && e.target.closest('.ap-card[data-dragid]'); if (!c) return; S.dragId = c.dataset.dragid; if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', S.dragId); } catch (err) { /* ignore */ } } c.classList.add('dragging'); const ap = c.closest('.ap'); if (ap) ap.classList.add('ap-dragging'); });
     document.addEventListener('dragover', (e) => { const c = cardOf(e); if (!c || !S.dragId) return; e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; document.querySelectorAll('.ap-card.over').forEach((x) => { if (x !== c) x.classList.remove('over'); }); c.classList.add('over'); });
     document.addEventListener('drop', (e) => { const c = cardOf(e); if (!c || !S.dragId) return; e.preventDefault(); const id = S.dragId; S.dragId = ''; moveCmp(id, c.dataset.dropend ? 99 : Number(c.dataset.slot)); });
-    document.addEventListener('dragend', () => { S.dragId = ''; document.querySelectorAll('.ap-card.over,.ap-card.dragging').forEach((x) => x.classList.remove('over', 'dragging')); });
+    document.addEventListener('dragend', () => { S.dragId = ''; document.querySelectorAll('.ap-card.over,.ap-card.dragging').forEach((x) => x.classList.remove('over', 'dragging')); document.querySelectorAll('.ap-dragging').forEach((x) => x.classList.remove('ap-dragging')); });
     document.addEventListener('input', (e) => {
+      if (e.target.id === 'cmpSearch') { S.fq = e.target.value; const f = $('#cmpFound'); if (f) f.innerHTML = foundHtml(); }
       if (e.target.id === 'mdlSearch') { S.q = e.target.value; $('#mdlBox').innerHTML = modelsTable(); }
       if (/^mf(MaxP|MaxW|MinB)$/.test(e.target.id)) { const k = { mfMaxP: 'maxP', mfMaxW: 'maxW', mfMinB: 'minB' }[e.target.id]; S.mf[k] = e.target.value; S.mfView = ''; const n = S.products.filter(mfPass).length; $('#mdlBox').innerHTML = modelsTable(); const sm = $('#mfSum'); if (sm) sm.innerHTML = mfOn() ? `${n} of ${S.products.length} models match. ${n ? `<button type="button" class="linkbtn" id="mfCmp">Compare the first ${Math.min(n, MAXCMP)}</button>` : ''}` : ''; const sb = $('#mfSave'); if (sb) sb.disabled = !mfOn(); }
       if (e.target.id === 'pickQ') { S.pickQ = e.target.value; $('#pickList').innerHTML = pickerHtml(); }

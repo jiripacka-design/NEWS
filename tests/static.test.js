@@ -133,7 +133,7 @@ test('v3.14 comparison, insights and visual additions are wired in',()=>{
   const p=fs.readFileSync('public/pm.js','utf8'),h=fs.readFileSync('public/tracker.html','utf8');
   for(const k of ['filterBar()','winLose()','sinceLast()','missBtn(','data-fill','cih_pm_views','cih_pm_visit','class="usband"','const SKEL'])assert.ok(p.includes(k),k);
   assert.ok(p.includes("worst != null && worst !== best"),'weakest value in a row is marked');
-  assert.ok(p.includes("ap ${S.dens}${hs ? ' hs' : ''}"),'sideways scrolling keeps the first model in view');
+  assert.ok(p.includes('const apHtml = hs')&&p.includes('ap ${S.dens} hs'),'sideways scrolling keeps the first model in view');
   for(const k of ['.ap-c.worst','.ap.hs','.wl-card','.since-g','.skel{','prefers-reduced-motion'])assert.ok(h.includes(k),k);
 });
 test('Collect data defaults to one request for everything missing',()=>{
@@ -152,4 +152,27 @@ test('comparison density, folded notes and collapsible sections are wired in',()
   const p=fs.readFileSync('public/pm.js','utf8'),h=fs.readFileSync('public/tracker.html','utf8');
   for(const k of ['cih_pm_dens','cih_pm_secs','data-dens','data-secall','class="ni"','ap-note','sec-t'])assert.ok(p.includes(k),k);
   for(const k of ['.ap.compact .ap-row{display:grid','.ap-sec.closed .ap-rows{display:none}','.ap.compact .ap-note{display:none}'])assert.ok(h.includes(k),k);
+});
+
+test('comparison screen has a search over every spec that matches whole words and ignores notes',()=>{
+  const p=fs.readFileSync('public/pm.js','utf8'),h=fs.readFileSync('public/tracker.html','utf8');
+  for(const k of ['id="cmpSearch"','function searchModels','function foundHtml','wordHit(','data-fq','id="fdCmp"','no ${esc(r.label.toLowerCase())} information recorded yet'])assert.ok(p.includes(k),k);
+  assert.ok(p.includes("'notes']")&&p.includes('SEARCH_SKIP'),'free-text notes are not searched');
+  assert.ok(h.includes('.found-r{display:grid')&&h.includes('.fchip'));
+});
+
+test('light on Vercel: one scan a day around 07:50, nothing polling, digest after the scan',()=>{
+  const v=JSON.parse(fs.readFileSync('vercel.json','utf8')),h=fs.readFileSync('public/tracker.html','utf8');
+  const sc=p=>v.crons.find(x=>x.path===p).schedule;
+  assert.equal(sc('/api/refresh'),'50 7 * * *');assert.equal(sc('/api/digest?send=1'),'0 8 * * 1','the Monday digest waits for the morning scan');
+  for(const c of v.crons)assert.match(c.schedule,/^\d+ \d+ \* \* (\*|\d)$/,'every job runs at most once a day: '+c.path);
+  assert.ok(!h.includes('setInterval(()=>{if(!document.hidden)loadLive()},60000)'),'the page no longer reloads the news every minute');
+  assert.ok(h.includes('Date.now()-liveAt>30*60000'));
+});
+test('wide comparison: the names band is outside the scrolling bands, and the bands scroll together',()=>{
+  const p=fs.readFileSync('public/pm.js','utf8'),h=fs.readFileSync('public/tracker.html','utf8');
+  assert.ok(p.includes('class="ap-stick" aria-label="Models being compared"><div class="ap-band" data-x>'));
+  assert.ok(p.includes("classList.contains('ap-band')")&&p.includes('x.scrollLeft = l'));
+  assert.ok(h.includes('.ap.hs{overflow:visible!important')&&h.includes('--pn:#070707'));
+  assert.ok(p.includes('Drag to swap places')&&!p.includes('⠿'),'the drag handle is a labelled swap icon');
 });

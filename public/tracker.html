@@ -152,8 +152,9 @@ const esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;'
 const safeUrl=u=>/^https?:\/\//i.test(u||'')?esc(u):'#';
 const hiRe=/launch|unveil|announce|acquisition|acquires|recall|bankrupt|insolven|funding|raises|partnership|new model|price (cut|rise|increase)/i;
 function mapLive(a){const d=String(a.published||a.ingestedAt||'').slice(0,10);return{date:/^\d{4}-\d{2}-\d{2}$/.test(d)?d:new Date().toISOString().slice(0,10),brand:esc(a.brand||'Other'),type:a.validation?'Validation feed':'Live news',title:esc(a.title||'(untitled)'),priority:(!a.validation&&hiRe.test(a.title||''))?'High':'Medium',source:esc(a.source||'Unknown'),summary:esc(String(a.summary||'').slice(0,280)),url:safeUrl(a.url),live:true,id:String(a.id||''),evt0:a.eventType||'',archived:!!a.archived,sourceId:String(a.sourceId||''),image:/^https:\/\/\S+$/.test(a.image||'')?esc(a.image):''}}
-async function loadLive(){try{const r=await fetch('/api/news',{credentials:'same-origin',cache:'no-store'});if(r.status===401){location.href='/login';return}if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();const tags=d.tags||{},dupOf=d.dupOf||{};const live=(d.articles||[]).map(a=>{const x=mapLive(a);if(tags[a.id])x.evt0=tags[a.id];if(dupOf[a.id])x.dupOf=dupOf[a.id];return x});const byId=new Map(live.map(x=>[x.id,x]));live.forEach(x=>{const m=x.dupOf&&byId.get(x.dupOf);if(m){(m.dups=m.dups||[]).push(x);x.dupTitle=m.title}});news.splice(0,news.length,...curatedNews,...live);news.sort((a,b)=>b.date.localeCompare(a.date));buildYears();feed();if(window.CIH&&CIH.onNews)CIH.onNews();$('#last').textContent='Updated '+new Date().toLocaleTimeString()+' · '+live.length+' live items'+(d.updatedAt?' · last scan '+new Date(d.updatedAt).toLocaleString():' · no scan yet')}catch(e){$('#last').textContent='Live feed error: '+e.message}}
-function startLive(){loadLive();loadStatus();setInterval(()=>{if(!document.hidden)loadLive()},60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)loadLive()})}
+let liveAt=0;async function loadLive(){liveAt=Date.now();try{const r=await fetch('/api/news',{credentials:'same-origin',cache:'no-store'});if(r.status===401){location.href='/login';return}if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();const tags=d.tags||{},dupOf=d.dupOf||{};const live=(d.articles||[]).map(a=>{const x=mapLive(a);if(tags[a.id])x.evt0=tags[a.id];if(dupOf[a.id])x.dupOf=dupOf[a.id];return x});const byId=new Map(live.map(x=>[x.id,x]));live.forEach(x=>{const m=x.dupOf&&byId.get(x.dupOf);if(m){(m.dups=m.dups||[]).push(x);x.dupTitle=m.title}});news.splice(0,news.length,...curatedNews,...live);news.sort((a,b)=>b.date.localeCompare(a.date));buildYears();feed();if(window.CIH&&CIH.onNews)CIH.onNews();$('#last').textContent='Updated '+new Date().toLocaleTimeString()+' · '+live.length+' live items'+(d.updatedAt?' · last scan '+new Date(d.updatedAt).toLocaleString():' · no scan yet')}catch(e){$('#last').textContent='Live feed error: '+e.message}}
+// Light on server use: the news is read when the page opens, and again when you come back to the tab after 30 minutes. It is not polled.
+function startLive(){loadLive();loadStatus();document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Date.now()-liveAt>30*60000)loadLive()})}
 /* Run scan: a blue ring draws clockwise around the button, from top-centre. Halfway is bottom-centre and it closes at 100%.
    The scanner reports how many sources it has read (/api/progress); the ring follows that. */
 const RUN={busy:false,timer:null,shown:0,target:0};
@@ -922,9 +923,40 @@ button.miss:hover{border-color:var(--bl);background:var(--hl)}
 
 /* ---- v3.14.3: drag to reorder, not-published cells ---- */
 .ap-card[draggable="true"]{cursor:grab}.ap-card.dragging{opacity:.45}.ap-card.over .ap-pic,.ap-card.empty.over{outline:2px dashed var(--us-ac);outline-offset:3px}
-.ap-pic{position:relative}.ap-grip{position:absolute;left:8px;top:6px;z-index:2;width:22px;height:22px;display:flex;align-items:center;justify-content:center;border-radius:6px;background:rgba(0,0,0,.55);color:#fff;font-size:15px;line-height:1;opacity:0;transition:opacity .15s;pointer-events:none}.ap-card:hover .ap-grip{opacity:1}
+.ap-pic{position:relative}.ap-grip{position:absolute;left:8px;top:8px;z-index:2;display:inline-flex;align-items:center;gap:5px;padding:4px 10px 4px 7px;border-radius:999px;background:rgba(20,20,22,.88);color:#fff;font-size:12px;font-weight:600;line-height:1;pointer-events:none}
 .ap-act .mv{font-size:18px;line-height:1;padding:0 4px}.ap-act .mv:disabled{opacity:.3;cursor:default}
 button.miss.na{border-style:dotted;color:var(--mu);font-weight:500}
 .cl-naempty{display:inline-flex;align-items:center;gap:8px;margin-right:14px;font-size:13px}.cl-naall{margin-top:10px;font-size:13px}
+
+/* ---- v3.14.4: search every spec ---- */
+.cmp-search{margin-bottom:14px}.cmp-search .ctl{display:grid;gap:4px;font-size:12px;color:var(--mu)}.cmp-search .field{width:100%;max-width:560px;font-size:15px}
+.found-hint{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;font-size:13px}
+.found-h{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin:12px 0 6px}.found-note{margin:4px 0 8px}
+.found-l{max-height:340px;overflow:auto;border-top:1px solid var(--hl)}
+.found-r{display:grid;grid-template-columns:minmax(210px,1fr) 2fr auto;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--hl)}
+.found-n{min-width:0;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;font-size:14px}.found-p{font-size:12.5px}
+.found-c{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center}
+.fchip{display:inline-block;background:var(--hl);border-radius:999px;padding:2px 10px;font-size:12.5px}.fchip b{font-weight:600;color:var(--mu);margin-right:4px}
+.found-a{text-align:right;font-size:13px}
+@media(max-width:800px){.found-r{grid-template-columns:1fr}.found-a{text-align:left}}
+
+/* ---- v3.14.5: wide comparison keeps the names pinned; opaque sticky cells match the panel ---- */
+:root{--pn:#070707}
+.ap-stick{background:var(--pn)}
+.ap.hs{overflow:visible!important;padding-bottom:0}
+.ap.hs>*{min-width:0!important}
+.ap.hs .ap-band{overflow-x:auto;scrollbar-width:none}.ap.hs .ap-band::-webkit-scrollbar{display:none}
+.ap.hs .ap-bandb{scrollbar-width:thin;padding-bottom:8px}.ap.hs .ap-bandb::-webkit-scrollbar{display:block;height:10px}
+.ap.compact{--off:calc(var(--lw) + 22px)}.ap.comfortable{--off:0px}
+.ap.hs .ap-in{min-width:calc(var(--off) + var(--n)*190px + (var(--n) - 1)*22px)}
+.ap.hs .ap-cards>:first-child,.ap.hs .ap-vals>:first-child{background:var(--pn)}
+.ap.hs .ap-vals>.ap-c.is-us:first-child{background:var(--pn)!important}
+.ap.hs .ap-vals>.ap-c.best:first-child{background:linear-gradient(rgba(95,214,173,.15),rgba(95,214,173,.15)),var(--pn)!important}
+.ap.hs .ap-vals>.ap-c.worst:first-child{background:linear-gradient(rgba(240,165,138,.15),rgba(240,165,138,.15)),var(--pn)!important}
+.ap.hs.compact .ap-l{background:var(--pn)}
+.ap.hs .ap-sec h3{background:var(--pn)}
+.ap.hs .ap-cards>:first-child.is-us{background:var(--pn)!important}
+.ap.ap-dragging .ap-card:not(.dragging){outline:2px dashed rgba(255,255,255,.3);outline-offset:4px;border-radius:14px}
+.ap.ap-dragging .ap-card.over{outline-color:var(--us-ac)}
 </style>
 </body></html>
