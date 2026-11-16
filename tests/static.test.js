@@ -174,5 +174,5 @@ test('wide comparison: the names band is outside the scrolling bands, and the ba
   assert.ok(p.includes('class="ap-stick" aria-label="Models being compared"><div class="ap-band" data-x>'));
   assert.ok(p.includes("classList.contains('ap-band')")&&p.includes('x.scrollLeft = l'));
   assert.ok(h.includes('.ap.hs{overflow:visible!important')&&h.includes('--pn:#070707'));
-  assert.ok(p.includes('Drag to swap places')&&!p.includes('⠿'),'the drag handle is a labelled swap icon');
+  assert.ok(p.includes('Drag to swap places')&&!p.includes('⠿')&&!p.includes('<span>Drag</span>'),'the drag handle is a small swap icon with no text');
 });
