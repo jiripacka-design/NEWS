@@ -1,4 +1,4 @@
-# Brompton Enemies v3.13.0
+# Brompton Enemies v3.15.0
 
 Next.js app for Vercel: a password-protected tracker (news scanner, social watch, insights, product matrix, competitor profiles, weekly digest) with a scanner admin at `/admin`.
 
@@ -13,8 +13,20 @@ Next.js app for Vercel: a password-protected tracker (news scanner, social watch
 Local development: `CI_LOCAL_STORE=./.data npm run dev` keeps data on disk instead of Blob. Tests: `npm test`.
 
 ## What is in it
-- Sections run across the top: **News & updates** (opening page), **Insights** (watchlist, momentum, portfolio and volumes, price chart, regions, activity, data gaps), **Social watch**, **Product Comparison** (compare up to 6), **Competitors** (profiles, company panel, where-they-sell map, pictures), **Sources** (source manager and scanner status).
+- Sections run across the top: **News & updates** (opening page), **Insights** (watchlist, momentum, portfolio and volumes, price chart, regions, activity, data gaps), **Product Comparison** (compare up to 6), **Competitors** (profiles, company panel, where-they-sell map, pictures), **Sources** (source manager and scanner status).
 - The scanner reads 129+ sources once a day, at about 07:50 UTC (and whenever you press **Run scan**). On Vercel's free plan a daily job can start any time within its hour (07:00 to 07:59 UTC), and the clock is UTC: that is 07:50 in London in winter and 08:50 in summer. The open page does not poll; it loads the news when opened and again if you return to the tab after 30 minutes; add a website or feed under Sources > Add source.
+
+## v3.15.0
+1. **Cleaner numbers.** A brand's own blog or newsroom posts (an "Official" source, or a page on the brand's website) are tagged *Brand's own post* in News and no longer count towards Momentum or the 7-day changes, unless they are a launch, price change or recall. Their priority drops by 2. Brands marked **Not a direct competitor** on the profile (bike-share schemes such as Lime or Voi) are left out of Momentum. Motorcycle and motorsport stories are no longer kept by the scanner and existing ones are hidden.
+2. **Event tags.** "Reveals" only counts as a launch when a product follows ("boss reveals new factory…" is no longer a Launch).
+3. **Social on the profile.** The Social watch screen is gone; each competitor profile has a **Social channels** panel with a button per channel (saved links first, then the built-in list; searches are marked) and **Log a post you saw**. Edit profile has a *Social channels* box.
+4. **Navigation.** Every menu switch starts at the top of the page. Links to a section work (`/#insights`, `/#comparison`, `/#sources`…); the old `#matrix` and `#social` still open the right place.
+5. **Insights** opens on **Overview**. "Since your last visit" is one line when nothing changed. Cards no longer repeat "No threat reason yet". Region matrix: "US" is now **Americas**, "CHINA" **Greater China**, and *Overlap with us* (4 of 4 for nearly everyone) is replaced by **Shared countries**; no zebra stripes over the highlighted columns.
+6. **Product Comparison** opens with the three closest-priced rivals when only our model is in it (once), with the key sections open; smaller section headings.
+7. **Sources.** Sources that need attention come first with the reason in plain words; select the *Need attention* figure to show only those. *Remove…* is a quiet link (it still asks first).
+8. **Profiles.** A brand added by hand no longer says "No model added yet" when it has models. The profile map uses orange (theirs only), green (both) and blue (only us). The note on the figures holds up to 1,200 characters.
+9. **History** shows field names in words, and a password-only session can add a name (History › *Add your name*) so changes stop showing as "Someone".
+10. Headlines in another language get a **Translate** link. *Every model is up to date* in Collect data is a badge, not a button. News summaries use the full width next to the picture.
 
 ## v3.13.0
 1. **Price history.** Every list price saved (by hand, Collect data or a re-check) and every street price read is kept with its date. **Insights › Charts › Price history** draws each model's price over time with street prices as dots, and lists every change (was, now, %, who or what found it).

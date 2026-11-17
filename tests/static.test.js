@@ -50,9 +50,9 @@ test('Product matrix is now Product Comparison, with remove buttons and a clicka
   assert.ok(!/Product matrix/i.test(p));assert.ok(p.includes("'Product Comparison'"));
   for(const k of ['data-rm','data-pick','openPicker','ap-x','ap-add'])assert.ok(p.includes(k),k);
 });
-test('the world map is flat (Miller cylindrical) and Markets is the first Insights tab',()=>{
+test('the world map is flat (Miller cylindrical) and Overview is the first Insights tab (v3.15)',()=>{
   const m=fs.readFileSync('public/world-map.js','utf8'),p=fs.readFileSync('public/pm.js','utf8');
-  assert.match(m,/Miller cylindrical/);assert.match(p,/TABS = \[\['markets'/);assert.ok(p.includes("insTab: 'markets'"));
+  assert.match(m,/Miller cylindrical/);assert.match(p,/TABS = \[\['overview'/);assert.ok(p.includes("insTab: 'overview'"));
 });
 test('page wiring that live news and the filters depend on is present',()=>{
   const h=fs.readFileSync('public/tracker.html','utf8');

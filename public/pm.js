@@ -8,7 +8,7 @@
   if (!C || !E) { console.error('pm.js: tracker core or events.js missing'); return; }
   const { $, $$, esc, toast } = C;
   const REG = ['US', 'EMEA', 'APAC', 'CHINA'], CATS = ['Folding bike', 'Folding e-bike', 'E-bike', 'Cargo e-bike'], THR = ['High', 'Medium', 'Low'];
-  const S = { brands: {}, products: [], win: 30, cmp: { us: '', others: [] }, sort: { k: 'brand', d: 1 }, q: '', profile: '', digest: null, removed: [], arch: 'hide', showEmpty: false, diff: false, wide: true, insTab: 'markets', pfSort: { k: 'u', d: -1 }, rgSort: { k: '', d: 1 }, fq: '', mf: { cat: '', maxP: '', maxW: '', minB: '', el: false }, views: [], mfView: '', cview: 'ladder', ladSort: 'cheap', rankBy: 'weightKg', cscale: 'log', chHide: new Set(), chFind: '', mkSel: 'all', mkMode: 'count', mkC: '', mkAbsent: false, pickSlot: 0, pickQ: '' };
+  const S = { brands: {}, products: [], win: 30, cmp: { us: '', others: [] }, sort: { k: 'brand', d: 1 }, q: '', profile: '', digest: null, removed: [], arch: 'hide', showEmpty: false, diff: false, wide: true, insTab: 'overview', pfSort: { k: 'u', d: -1 }, rgSort: { k: '', d: 1 }, fq: '', mf: { cat: '', maxP: '', maxW: '', minB: '', el: false }, views: [], mfView: '', cview: 'ladder', ladSort: 'cheap', rankBy: 'weightKg', cscale: 'log', chHide: new Set(), chFind: '', mkSel: 'all', mkMode: 'count', mkC: '', mkAbsent: false, pickSlot: 0, pickQ: '' };
   const slug = (t) => String(t).toLowerCase().replace(/[^a-z]+/g, '-').replace(/^-|-$/g, '');
   const sv = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } };
   const ld = (k, f) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? f : v; } catch (e) { return f; } };
@@ -66,6 +66,7 @@
     else if (bm(b).watch) { const th = bm(b).threat, v = th === 'High' ? 3 : th === 'Medium' ? 2 : 1; sc += v; pts.push(`watchlist (${th || 'no'} threat) +${v}`); }
     const t = evtOf(n), e = EVT_PTS[t] || 0; if (e) { sc += e; pts.push(`${t} +${e}`); }
     const age = E.ageDays(n, Date.now()); if (age >= 0 && age <= 7) { sc += 1; pts.push('last 7 days +1'); }
+    if (isOwn(n) && !OWN_KEEP.has(t)) { sc -= 2; pts.push('brand\u2019s own blog post −2'); }
     const level = sc >= 5 ? 'High' : sc >= 3 ? 'Medium' : 'Low';
     return { level, score: sc, why: `${level} priority (${sc} points): ${pts.join(', ') || 'nothing that raises it'}. Rules: 5+ High, 3-4 Medium, below 3 Low.` };
   }
@@ -80,6 +81,7 @@
   const passNews = (n, ignoreArchive) => {
     if (S.removed.includes(n.brand)) return false;
     if (n.dupOf && !S.showDups) return false;
+    if (offTopic(n)) return false;
     if (ignoreArchive) return true;
     return S.arch === 'show' ? true : S.arch === 'only' ? !!n.archived : !n.archived;
   };
@@ -100,7 +102,31 @@
   const onSale = (p) => S.showDisc || !isDisc(p);
   const sale = () => S.products.filter(onSale);
   const discTag = (p) => (isDisc(p) ? ` <span class="disc-tag" title="Discontinued${p.discontinuedAt ? ' ' + fmtDay(p.discontinuedAt) : ''}">Discontinued</span>` : '');
-  const feedItems = () => { const t = tracked(); return C.news.filter((n) => t.has(n.brand) && !n.archived); };
+  const feedItems = () => { const t = tracked(); return C.news.filter((n) => t.has(n.brand) && !n.archived && !offTopic(n)); };
+  /* v3.15: three kinds of item that used to distort the numbers.
+     Own content: a brand's own blog or newsroom (an "Official" source, or a page on the brand's own website). It stays in News,
+     tagged "Brand's own post", but does not count towards Momentum or the 7-day changes, so a brand that posts SEO guides daily
+     no longer looks like the busiest competitor. A launch, price change or recall on its own site still counts.
+     Not a competitor: brands you mark as such on the profile (bike-share schemes such as Lime or Voi) are left out of Momentum.
+     Off topic: motorcycle and motorsport stories that matched a brand name (e.g. "Phoenix Racing Honda") are hidden. */
+  const hostOf = (u) => { try { return new URL(u).hostname.toLowerCase().replace(/^www\./, ''); } catch (e) { return ''; } };
+  const bkey = (b) => String(b || '').split('/')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+  const OWN_KEEP = new Set(['Launch', 'Price change', 'Recall']);
+  function isOwn(n) {
+    if (!n || !n.brand || n.brand === 'General') return false;
+    if (/\bofficial\b/i.test(String(n.source || ''))) return true;
+    const h = hostOf(n.url); if (!h || /(^|\.)google\./.test(h)) return false;
+    const site = hostOf(bm(n.brand).website || ''); if (site && (h === site || h.endsWith('.' + site))) return true;
+    const k = bkey(n.brand); return k.length >= 4 && h.replace(/[^a-z0-9.]/g, '').split('.').slice(0, -1).join('').includes(k);
+  }
+  const countsAsNews = (n) => !isOwn(n) || OWN_KEEP.has(evtOf(n));
+  const notComp = (b) => !!bm(b).notCompetitor;
+  const OFFTOPIC = /\b(motorcycl\w*|motorbikes?|motocross|supercross|moto ?gp|superbikes?|dirt ?bikes?|racing honda|honda racing|kawasaki|ducati|harley[- ]davidson|ama pro|world superbike|isle of man tt|nascar|formula (one|1)|f1 team)\b/i;
+  const offTopic = (n) => !!n && !n.manual && (OFFTOPIC.test(`${n.title} ${n.summary}`) || /^cycle news$/i.test(String(n.source || '').trim()));
+  // Headlines not in English get a one-click translation (no data is sent anywhere until you select it).
+  const foreign = (t) => { t = String(t || ''); return /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\u0400-\u04ff\u0590-\u06ff]/.test(t) || (t.match(/\b(le|la|les|des|du|une|et|pour|avec|der|die|das|und|mit|für|ein|eine|het|een|voor|il|della|per|con|el|los|las|del|para|nouveau|nouvelle|neue|nuevo|nuova)\b/gi) || []).length >= 2; };
+  const trLink = (n) => (foreign(n.title) ? ` · <a class="trlink" href="https://translate.google.com/?sl=auto&tl=en&op=translate&text=${encodeURIComponent(String(n.title).replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'"))}" target="_blank" rel="noopener noreferrer" title="Open this headline in Google Translate">Translate</a>` : '');
+  const metaExtra = (n) => (isOwn(n) ? ' · <span class="own-tag" title="From the brand\u2019s own blog or website. Shown here, but not counted in Momentum or the 7-day changes unless it is a launch, price change or recall.">Brand\u2019s own post</span>' : '') + trLink(n);
   const badges = (n) => (isUs(n) ? '<span class="pm-us" title="Our brand">US</span>' : '') + (bm(n).watch ? '<span class="pm-watch" title="On the watchlist">★</span>' : '') + (bm(n).threat ? `<span class="thr t-${bm(n).threat.toLowerCase()}">${bm(n).threat}</span>` : '');
 
   /* ---------- small view helpers ---------- */
@@ -122,15 +148,24 @@
   const RENDER = {};
   // Remember the screen across a normal page refresh. The tracker runs inside an iframe on '/', so the hash is also
   // mirrored on the parent page (same origin), which is the address the browser reloads.
-  const SCREENS = ['news', 'insights', 'social', 'matrix', 'collect', 'competitors', 'sources', 'history'];
+  // v3.15: the address shows #comparison for the Product Comparison (its view id is still "matrix"); the old #matrix and
+  // #social links still work (Social watch now lives on each competitor profile, so #social opens Competitors).
+  const SCREENS = ['news', 'insights', 'matrix', 'collect', 'competitors', 'sources', 'history'];
+  const HASH_IN = { comparison: 'matrix', social: 'competitors' }, HASH_OUT = { matrix: 'comparison' };
+  const screenOf = (h) => { const v = String(h || '').replace(/^#/, '').toLowerCase(); const id = HASH_IN[v] || v; return SCREENS.includes(id) ? id : ''; };
   function savedScreen() {
-    try { const h = (window.parent !== window ? window.parent.location.hash : '') || location.hash || ''; const v = h.replace(/^#/, ''); return SCREENS.includes(v) ? v : ''; } catch (e) { return SCREENS.includes((location.hash || '').slice(1)) ? location.hash.slice(1) : ''; }
+    try { return screenOf((window.parent !== window ? window.parent.location.hash : '') || location.hash); } catch (e) { return screenOf(location.hash); }
   }
   function rememberScreen(id) {
     if (!SCREENS.includes(id)) return;
-    try { history.replaceState(null, '', '#' + id); } catch (e) { /* ignore */ }
-    try { if (window.parent !== window) window.parent.history.replaceState(null, '', '#' + id); } catch (e) { /* ignore */ }
+    const h = '#' + (HASH_OUT[id] || id);
+    try { history.replaceState(null, '', h); } catch (e) { /* ignore */ }
+    try { if (window.parent !== window) window.parent.history.replaceState(null, '', h); } catch (e) { /* ignore */ }
   }
+  // Typing or pasting an address with a different #section (or following a shared link) now switches the screen.
+  const onHash = (h) => { const id = screenOf(h); if (id && id !== ($('.view.active') || {}).id) go(id); };
+  window.addEventListener('hashchange', () => onHash(location.hash));
+  try { if (window.parent !== window) window.parent.addEventListener('hashchange', () => onHash(window.parent.location.hash)); } catch (e) { /* not same origin */ }
   // Read the saved screen straight away, before anything can overwrite it.
   const START = savedScreen();
   // The built-in menu tabs switch screens without calling go(), so record every menu click here.
@@ -147,7 +182,7 @@
   function openNews(brand, type) { C.evtSel = type || ''; const sel = $('#evtType'); if (sel) sel.value = type || ''; C.setNewsBrand(brand); }
 
   /* =====================  INSIGHTS (watchlist + insights on one page)  ===================== */
-  const TABS = [['markets', 'Markets'], ['overview', 'Overview'], ['portfolio', 'Portfolio and volumes'], ['chart', 'Charts'], ['gaps', 'Data gaps']];
+  const TABS = [['overview', 'Overview'], ['markets', 'Markets'], ['portfolio', 'Portfolio and volumes'], ['chart', 'Charts'], ['gaps', 'Data gaps']];
   // Short plain-English explanations, shown above each table so every number can be read without a manual.
   const gloss = (rows) => `<details class="howto"${S.howOpen ? ' open' : ''}><summary>How to read this</summary><dl>${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl></details>`;
   function wcard(b, mom) {
@@ -158,7 +193,7 @@
     return `<article class="wc${isUs(b) ? ' is-us' : ''}" data-open="${esc(b)}" tabindex="0" role="button">
       <header><h3>${esc(b)}</h3><span>${badges(b)}</span></header>
       <div class="wc-cat">${esc(catOf(b))}${range}</div>
-      <p class="wc-reason">${bm(b).threatReason ? esc(bm(b).threatReason) : (isUs(b) ? 'Our brand: the reference for every comparison.' : '<span class="muted">No threat reason yet. Open the profile to add one.</span>')}</p>
+      ${bm(b).threatReason ? `<p class="wc-reason">${esc(bm(b).threatReason)}</p>` : (isUs(b) ? '<p class="wc-reason">Our brand: the reference for every comparison.</p>' : '')}
       <div class="wc-mom">${spark(m.spark)}<span class="st ${statusCls[m.label]}">${m.label}</span><span class="muted">${m.cur} vs ${m.prev} (30 days)</span></div>
       <div class="wc-last">${last ? `<span class="${chipCls(evtOf(last))}">${esc(evtOf(last))}</span> <span class="muted">${fmtDay(last.date)}</span><br>${last.title}` : '<span class="muted">No items yet</span>'}</div></article>`;
   }
@@ -193,17 +228,19 @@
     const mv = moves.sort((a, b) => (isUs(b.p.brand) - isUs(a.p.brand)) || Math.abs(b.to - b.from) - Math.abs(a.to - a.from)).slice(0, 6).map((m) => { const d = m.to - m.from; return `<li><strong>${esc(m.p.brand)} ${esc(m.p.model)}</strong> <span class="${d < 0 ? 'pc-down' : 'pc-up'}">${gbp(m.from)} → ${gbp(m.to)} (${d > 0 ? '+' : '−'}${gbp(Math.abs(d))})</span></li>`; }).join('');
     const nw = fresh.slice(0, 6).map((p) => `<li><strong>${esc(p.brand)} ${esc(p.model)}</strong> <span class="muted">${priceOf(p).v != null ? priceTxt(p) : 'no price yet'}</span></li>`).join('');
     const en = entries.slice(0, 6).map((n) => `<li><strong>${esc(n.brand)}</strong> <span class="muted">${esc(String(n.title).slice(0, 110))}</span></li>`).join('');
+    if (!total) return `<div class="since-none sub">Nothing new since ${S.visitFirst ? 'last week' : when}: no price moves, new models or new-market entries.</div>`;   // v3.15: one line instead of a panel of zeros
     return `<div class="panel since"><div class="chart-head"><div><h3>Since your last visit</h3><div class="sub">${S.visitFirst ? 'First visit on this device: showing the last 7 days.' : `Changes since ${when}.`} Price moves are those recorded here; us: ${esc(us)}.</div></div></div>
       <div class="since-g">${tile(moves.length, 'price moves')}${tile(fresh.length, 'new models')}${tile(entries.length, 'new-market entries')}</div>
       ${total ? `<div class="since-l">${mv ? `<div><h4>Price moves</h4><ul>${mv}</ul></div>` : ''}${nw ? `<div><h4>New models</h4><ul>${nw}</ul></div>` : ''}${en ? `<div><h4>New markets</h4><ul>${en}</ul></div>` : ''}</div>` : `<div class="sub">Nothing new since then. Prices are re-checked weekly; new models appear when they are added in Collect data.</div>`}</div>`;
   }
   function insOverview() {
-    const now = Date.now(), us = usName(), W = S.win, items = feedItems(), mom = {};
-    E.momentum(items, C.brands, now, 30, 12).forEach((m) => { mom[m.brand] = m; });
+    const now = Date.now(), us = usName(), W = S.win, items = feedItems().filter(countsAsNews), mom = {}, compB = C.brands.filter((b) => !notComp(b) || isUs(b));
+    const ownN = feedItems().filter((n) => !countsAsNews(n) && E.ageDays(n, now) >= 0 && E.ageDays(n, now) < W).length, ncB = C.brands.filter((b) => notComp(b) && !isUs(b));
+    E.momentum(items, compB, now, 30, 12).forEach((m) => { mom[m.brand] = m; });
     const watched = C.brands.filter((b) => bm(b).watch && b !== us).sort((a, b) => thrOrder(a) - thrOrder(b) || a.localeCompare(b));
-    const d = E.buildDigest(items.map((n) => ({ date: n.date, brand: n.brand, title: n.title, summary: n.summary, url: n.url, evt: evtOf(n) })), { us, watch: watched, threat: Object.fromEntries(watched.map((b) => [b, { level: bm(b).threat || '' }])), brands: C.brands }, now, 7);
-    const ml = E.momentum(items, C.brands, now, W, 12).filter((m) => isUs(m.brand) || m.cur || m.prev).sort((a, b) => (isUs(b.brand) - isUs(a.brand)) || b.delta - a.delta || b.cur - a.cur);
-    const quiet = C.brands.length - ml.filter((m) => !isUs(m.brand) || m.cur || m.prev).length;
+    const d = E.buildDigest(items.map((n) => ({ date: n.date, brand: n.brand, title: n.title, summary: n.summary, url: n.url, evt: evtOf(n) })), { us, watch: watched, threat: Object.fromEntries(watched.map((b) => [b, { level: bm(b).threat || '' }])), brands: compB }, now, 7);
+    const ml = E.momentum(items, compB, now, W, 12).filter((m) => isUs(m.brand) || m.cur || m.prev).sort((a, b) => (isUs(b.brand) - isUs(a.brand)) || b.delta - a.delta || b.cur - a.cur);
+    const quiet = compB.length - ml.filter((m) => !isUs(m.brand) || m.cur || m.prev).length;
     return `${sinceLast()}<div class="panel"><div class="chart-head"><div><h3>Brands to watch</h3><div class="sub">Us first, then the competitors you pinned.</div></div></div>
       ${gloss([['Threat', 'How much this brand could hurt our sales. You set it on the profile.'], ['Trend', 'News items in the last 30 days against the 30 days before.'], ['Line', 'Items per week over the last 12 weeks.']])}
       ${watched.length ? '' : '<div class="pm-empty"><strong>Nothing pinned yet</strong><span>Pin the 5 to 8 competitors that matter most. They appear here with a threat level and a one-line reason, and become the quick filters in News.</span><button type="button" class="primary" id="pinFirst">Pin brands</button></div>'}
@@ -214,7 +251,7 @@
         ${gloss([['Last ' + W + 'd', 'News items in the last ' + W + ' days.'], ['Before', 'Items in the ' + W + ' days before that.'], ['Change', 'Last minus before. Green is busier, red is quieter.'], ['Status', 'Accelerating, Steady, Slowing, New activity or No activity.']])}
         <div class="tbl-wrap"><table class="pm-table"><thead><tr><th>Brand</th><th class="num">Last ${W}d</th><th class="num">Before</th><th class="num">Change</th><th>12 weeks</th><th>Status</th></tr></thead><tbody>
         ${ml.map((m) => `<tr class="${isUs(m.brand) ? 'is-us' : ''}"><td><button type="button" class="linkbtn" data-open="${esc(m.brand)}">${esc(m.brand)}</button> ${badges(m.brand)}</td><td class="num">${m.cur}</td><td class="num">${m.prev}</td><td class="num ${m.delta > 0 ? 'pos' : m.delta < 0 ? 'neg' : ''}">${m.delta > 0 ? '+' : ''}${m.delta}</td><td>${spark(m.spark)}</td><td><span class="st ${statusCls[m.label]}">${m.label}</span></td></tr>`).join('') || '<tr><td colspan="6" class="muted">No dated items yet.</td></tr>'}
-        </tbody></table></div><div class="sub">${quiet > 0 ? `${quiet} other brand${quiet === 1 ? ' has' : 's have'} no items in these windows. ` : ''}This counts items the tracker has stored, so a brand with few sources can look quiet when it is not.</div></div>
+        </tbody></table></div><div class="sub">${quiet > 0 ? `${quiet} other brand${quiet === 1 ? ' has' : 's have'} no items in these windows. ` : ''}This counts items the tracker has stored, so a brand with few sources can look quiet when it is not.${ownN ? ` ${ownN} post${ownN === 1 ? '' : 's'} from brands’ own blogs in this window ${ownN === 1 ? 'is' : 'are'} not counted (launches, price changes and recalls still are).` : ''}${ncB.length ? ` Not counted as competitors: ${ncB.map(esc).join(', ')} (change it on the profile).` : ''}</div></div>
       ${digestPanel()}`;
   }
 
@@ -307,11 +344,14 @@
     items.forEach((n) => { if (evtOf(n) !== 'Market entry') return; const a = E.ageDays(n, now); if (isNaN(a) || a < 0 || a >= 90) return; E.detectRegions(n.title + ' ' + n.summary).forEach((r) => { (fresh[n.brand] = fresh[n.brand] || new Set()).add(r); }); });
     const usR = regionsOf(us) || {}, usHas = (k) => (usR[k] || []).length > 0;
     const withData = C.brands.filter((b) => regionsOf(b)), without = C.brands.filter((b) => !regionsOf(b));
-    const overlap = (b) => REG.filter((k) => usHas(k) && ((regionsOf(b) || {})[k] || []).length).length;
+    // v3.15: "Overlap with us" counted regions, so almost everyone scored 4 of 4. It now counts the countries both of us list.
+    const usC = window.CIWorld ? new Set(placeCountries(countriesOf(us)).hit.keys()) : new Set(countriesOf(us).map((c) => c.toLowerCase()));
+    const overlap = (b) => { const k = window.CIWorld ? [...placeCountries(countriesOf(b)).hit.keys()] : countriesOf(b).map((c) => c.toLowerCase()); return k.filter((x) => usC.has(x)).length; };
+    const RLAB = { US: 'Americas' };
     const rows = [...new Set([us, ...withData, ...Object.keys(fresh)])].filter((b) => C.brands.includes(b)).sort((a, b) => (isUs(b) - isUs(a)) || overlap(b) - overlap(a) || a.localeCompare(b));
-    return `<div class="panel"><div class="chart-head"><div><h3>Region matrix</h3><div class="sub">Where each brand operates (number of countries listed). <span class="newtag">NEW</span> marks a market-entry story in the last 90 days that mentions the region, read from the headline, so check it. Highlighted columns are where we operate.</div></div></div>
-      <div class="tbl-wrap"><table class="pm-table"><thead><tr><th>Brand</th>${REG.map((k) => `<th class="num${usHas(k) ? ' us-col' : ''}">${k}${usHas(k) ? '<small>we are here</small>' : ''}</th>`).join('')}<th class="num">Overlap with us</th></tr></thead><tbody>
-      ${rows.map((b) => { const r = regionsOf(b) || {}; return `<tr class="${isUs(b) ? 'is-us' : ''}"><td><button type="button" class="linkbtn" data-open="${esc(b)}">${esc(b)}</button> ${badges(b)}</td>${REG.map((k) => { const n = (r[k] || []).length, nw = fresh[b] && fresh[b].has(k); return `<td class="num${usHas(k) ? ' us-col' : ''}${nw && usHas(k) && !isUs(b) ? ' hot' : ''}" title="${esc((r[k] || []).join(', '))}">${n ? n : '<span class="muted">·</span>'}${nw ? ' <span class="newtag">NEW</span>' : ''}</td>`; }).join('')}<td class="num">${isUs(b) ? '—' : `${overlap(b)} of ${REG.filter(usHas).length}`}</td></tr>`; }).join('')}
+    return `<div class="panel"><div class="chart-head"><div><h3>Region matrix</h3><div class="sub">Where each brand operates (number of countries listed). <span class="newtag">NEW</span> marks a market-entry story in the last 90 days that mentions the region, read from the headline, so check it. Highlighted columns are where we operate. <b>Shared countries</b> is how many of our ${usC.size} countries the brand also lists.</div></div></div>
+      <div class="tbl-wrap"><table class="pm-table rg-table"><thead><tr><th>Brand</th>${REG.map((k) => `<th class="num${usHas(k) ? ' us-col' : ''}">${RLAB[k] || (k === 'CHINA' ? 'Greater China' : k)}${usHas(k) ? '<small>we are here</small>' : ''}</th>`).join('')}<th class="num">Shared countries</th></tr></thead><tbody>
+      ${rows.map((b) => { const r = regionsOf(b) || {}; return `<tr class="${isUs(b) ? 'is-us' : ''}"><td><button type="button" class="linkbtn" data-open="${esc(b)}">${esc(b)}</button> ${badges(b)}</td>${REG.map((k) => { const n = (r[k] || []).length, nw = fresh[b] && fresh[b].has(k); return `<td class="num${usHas(k) ? ' us-col' : ''}${nw && usHas(k) && !isUs(b) ? ' hot' : ''}" title="${esc((r[k] || []).join(', '))}">${n ? n : '<span class="muted">·</span>'}${nw ? ' <span class="newtag">NEW</span>' : ''}</td>`; }).join('')}<td class="num">${isUs(b) ? '—' : `${overlap(b)} of ${usC.size}`}</td></tr>`; }).join('')}
       </tbody></table></div>
       <div class="sub">Region data exists for ${withData.length} of ${C.brands.length} brands. Add the rest on each profile.</div>
       <details class="gaps"><summary>Brands with no region data (${without.length})</summary><div class="chips">${gapChips(without)}</div></details></div>`;
@@ -838,8 +878,20 @@
     for (let v = Math.floor(lo / step) * step; v <= hi + step * 0.999; v += step) { t.push(+v.toFixed(6)); if (t.length > 12) break; }
     return t;
   }
+  // v3.15: a comparison with only our model in it opens with its three closest-priced rivals (watchlist brands first), once.
+  // Taking them out again is respected: it only happens while the comparison has never had a rival in it.
+  function autoRivals() {
+    if (S.cmp.others.length || S.cmp.autoDone || !prodById(S.cmp.us)) return;
+    const base = prodById(S.cmp.us), bp = priceOf(base).v, el = (p) => /e-?bike/i.test(p.category || '') || p.batteryWh != null;
+    const pool = sale().filter((p) => !isUs(p.brand) && !notComp(p.brand) && priceOf(p).v != null && el(p) === el(base));
+    if (!pool.length || bp == null) return;
+    const score = (p) => Math.abs(Math.log(priceOf(p).v / bp)) - (bm(p.brand).watch ? 0.25 : 0);
+    const picked = [], brandsUsed = new Set();
+    pool.sort((a, c) => score(a) - score(c)).forEach((p) => { if (picked.length < 3 && !brandsUsed.has(p.brand)) { picked.push(p.id); brandsUsed.add(p.brand); } });
+    S.cmp.others = picked; S.cmp.autoDone = true;
+  }
   function renderMatrix() {
-    fixCmp();
+    fixCmp(); autoRivals(); fixCmp();
     const noModels = C.brands.filter((b) => !S.products.some((p) => p.brand === b));
     $('#matrix').innerHTML = `<div class="head"><div><h2>Product Comparison</h2><div class="sub">Compare up to ${MAXCMP} models side by side. Select + to add a model, × to take one out. Us: <strong>${esc(usName())}</strong>.</div></div>
       <div class="source-actions"><button type="button" class="primary" id="addModel">Add model</button><button type="button" class="imagebtn" id="loadStarter">Load researched data</button><button type="button" class="imagebtn" data-go="collect" title="Import specs from a spreadsheet, pasted text or an AI answer, or download a spreadsheet to fill in">Import / export data</button><button type="button" class="imagebtn" id="bcOpen" title="A one-page sheet for the shop floor: our model against its closest rivals, where we win, objections to expect, and what we know about them">Battle card</button><button type="button" class="imagebtn" id="toggleWide" title="Use the whole width of the screen for the comparison">${S.wide ? 'Standard width' : 'Full width'}</button><input type="file" id="csvFile" accept=".csv,text/csv" hidden></div></div>
@@ -1000,6 +1052,31 @@
     const rth = (key, label) => `<th aria-sort="${rk === key ? (rd > 0 ? 'ascending' : 'descending') : 'none'}"><button type="button" class="sortbtn" data-rsort="${key}" title="Sort ${label.toLowerCase()} A to Z">${label}${rk === key ? (rd > 0 ? ' ▲' : ' ▼') : ''}</button></th>`;
     return `<div class="tbl-wrap"><table class="pm-table"><thead><tr><th class="mthumb-h">Picture</th>${rth('model', 'Model')}${rth('category', 'Category')}<th class="num">Price</th><th class="num">Weight</th><th class="num">Battery</th><th class="num">Range</th><th>Launch</th><th></th></tr></thead><tbody>${ps.map((p) => `<tr><td class="mthumb-c">${thumbBtn(p)}</td><td>${esc(p.model)}${discTag(p)}</td><td>${esc(p.category || '—')}</td><td class="num">${priceTxt(p)}</td><td class="num">${p.weightKg != null ? p.weightKg + ' kg' : '—'}</td><td class="num">${p.batteryWh != null ? p.batteryWh + ' Wh' : '—'}</td><td class="num">${p.rangeKm != null ? p.rangeKm + ' km' : '—'}</td><td>${plain(p.launch)}</td><td class="acts"><button type="button" class="linkbtn" data-cmp="${esc(p.id)}">Compare${isUs(n) ? '' : ' with us'}</button><button type="button" class="linkbtn" data-edit="${esc(p.id)}">Edit</button></td></tr>`).join('')}</tbody></table></div><button type="button" class="imagebtn" data-add="${esc(n)}">Add a model</button>`;
   }
+  /* v3.15: social channels as buttons on the profile (replaces the Social watch screen). Links saved on the profile come first;
+     the built-in list fills in any platform not saved (YouTube and LinkedIn there are searches, marked as such). */
+  const PLAT = [['instagram.com', 'Instagram'], ['facebook.com', 'Facebook'], ['youtube.com', 'YouTube'], ['youtu.be', 'YouTube'], ['linkedin.com', 'LinkedIn'], ['tiktok.com', 'TikTok'], ['x.com', 'X'], ['twitter.com', 'X'], ['pinterest.', 'Pinterest'], ['strava.com', 'Strava'], ['threads.net', 'Threads']];
+  const platOf = (u) => { const h = hostOf(u), f = PLAT.find(([d]) => h === d || h.endsWith('.' + d) || (d.endsWith('.') && h.includes(d))); return f ? f[1] : 'Website'; };
+  const isSearchUrl = (u, type) => /search|discovery/i.test(type || '') || /\/results\b|search_query=|\/search\b|keywords=/i.test(u || '');
+  function socialsOf(n) {
+    const own = (bm(n).socials || []).map((url) => ({ url, plat: platOf(url), search: isSearchUrl(url) })), have = new Set(own.map((x) => x.plat));
+    const base = (C.sourceData || []).filter((r) => r.brand === n && r.priority === 'Social' && r.enabled !== false && /^https:\/\//.test(r.url || '')).map((r) => ({ url: r.url, plat: platOf(r.url), search: isSearchUrl(r.url, r.type) }));
+    const seen = new Set(); return [...own, ...base.filter((x) => !have.has(x.plat))].filter((x) => !seen.has(x.url) && seen.add(x.url));
+  }
+  const ICO = {
+    Instagram: '<path d="M4 8.5a2 2 0 0 1 2-2h2l1.5-2h5l1.5 2h2a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><circle cx="12" cy="12.5" r="3.5"/>',
+    Facebook: '<path d="M4.5 6.5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H11l-4 3.5v-3.5h-.5a2 2 0 0 1-2-2Z"/><path d="M8.5 9.5h7M8.5 12.5h4.5"/>',
+    YouTube: '<rect x="2.5" y="5.5" width="19" height="13" rx="4"/><path d="m10 9 5 3-5 3Z" fill="currentColor"/>',
+    LinkedIn: '<rect x="3.5" y="7.5" width="17" height="12" rx="2"/><path d="M9 7.5V6a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 6v1.5M3.5 12.5h17"/>',
+    TikTok: '<path d="M14 4v10.5a3.5 3.5 0 1 1-3.5-3.5M14 4c.5 2.4 2.2 4 4.5 4.2"/>',
+    X: '<path d="M5 5l14 14M19 5 5 19"/>',
+    Website: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.6 2.5 14.4 0 17M12 3.5c-2.5 2.6-2.5 14.4 0 17"/>'
+  };
+  const socIcon = (p) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICO[p] || ICO.Website}</svg>`;
+  function socialHtml(n) {
+    const list = socialsOf(n);
+    const btns = list.map((x) => `<a class="soc-ico${x.search ? ' is-search' : ''}" href="${esc(x.url)}" target="_blank" rel="noopener noreferrer" title="${x.search ? `Search ${esc(x.plat)} for ${esc(n)}` : `${esc(n)} on ${esc(x.plat)}`}">${socIcon(x.plat)}<span>${esc(x.plat)}${x.search ? ' <small>search</small>' : ''}</span></a>`).join('');
+    return `<div class="soc-icons">${btns || '<span class="muted">No social channels yet. Add them in Edit profile.</span>'}</div><div class="soc-foot"><button type="button" class="linkbtn" id="profPost">Log a post you saw</button><span class="muted">It then appears in News.</span></div>`;
+  }
   // A model's own picture as a small button: select it to add or change the picture.
   const thumbBtn = (p) => { const m = modelPic(p); return `<button type="button" class="mthumb${m ? '' : ' empty'}" data-mpic="${esc(p.id)}" title="${m ? 'Change' : 'Add'} the picture for ${esc(p.model)}" aria-label="${m ? 'Change' : 'Add'} picture: ${esc(p.model)}">${m ? `<img src="${esc(m)}" alt="" loading="lazy">` : '<span>+ Picture</span>'}</button>`; };
   function renderProfile() {
@@ -1017,6 +1094,7 @@
         </div>
         <aside class="prof-side">
           ${pic ? `<div class="panel prof-pic"><img src="${pic}" referrerpolicy="no-referrer" alt="${esc(n)}"></div>` : ''}
+          <div class="panel"><h3>Social channels</h3>${socialHtml(n)}</div>
           <div class="panel"><h3>Company</h3>${companyHtml(n)}</div>
           <div class="panel"><h3>Regions</h3>${regionsHtml(n)}</div>
           <div class="panel"><h3>Commercials</h3>${commercialHtml(n)}</div>
@@ -1062,9 +1140,11 @@
       <div class="source-form-grid"><label>Revenue (£m, per year)<input class="field" id="pb-revenueGBPm" type="number" step="any" min="0"></label><label>Annual units<input class="field" id="pb-units" type="number" step="any" min="0"></label><label>Portfolio size (SKUs)<input class="field" id="pb-skuCount" type="number" step="1" min="0"></label><label>Last verified<span class="tri2"><input class="field" id="pb-lastVerified" type="date"><button type="button" class="imagebtn" id="pb-today">Today</button></span></label></div>
       <fieldset class="pm-sec"><legend>What this brand sells</legend><div class="offers">${OFFERS_LIST.map((o) => `<label class="chk"><input type="checkbox" class="pb-offer" value="${o}"> ${o}</label>`).join('')}</div></fieldset>
       <div class="source-form-grid"><label>P&amp;A products (parts and accessories on sale)<input class="field" id="pb-paSkus" type="number" step="1" min="0"></label><label>P&amp;A offering (e.g. luggage, lights, locks)<input class="field" id="pb-paCategories" maxlength="300"></label><label>Year the figures are for<input class="field" id="pb-figuresYear" maxlength="4" inputmode="numeric" placeholder="2024"></label></div>
-      <label>Note on the figures<input class="field" id="pb-dataNote" maxlength="400"></label>
+      <label>Note on the figures<textarea class="field" id="pb-dataNote" rows="3" maxlength="1200"></textarea></label>
+      <label>Social channels (one link per line: Instagram, Facebook, YouTube, LinkedIn, TikTok, X…)<textarea class="field" id="pb-socials" rows="3" placeholder="https://www.instagram.com/…"></textarea></label>
       <label>Sources (one link per line, https://)<textarea class="field" id="pb-sources" rows="3"></textarea></label>
       <label class="toggle-label"><input type="checkbox" id="pb-watch">Pin to the watchlist</label>
+      <label class="toggle-label"><input type="checkbox" id="pb-notCompetitor">Not a direct competitor (a bike-share scheme, retailer and so on): keep its news, leave it out of Momentum</label>
       <label class="toggle-label"><input type="checkbox" id="pb-isUs">This is our brand (“us”)<span class="muted" id="pb-usnote"></span></label>
       <div class="sf-res" id="pb-err" role="status"></div><div class="form-actions"><button type="button" class="imagebtn danger" id="pb-remove" hidden>Remove competitor…</button><button type="button" class="imagebtn" data-close>Cancel</button><button class="primary">Save profile</button></div></div></form>`;
     document.body.appendChild(d);
@@ -1073,8 +1153,8 @@
     $('#pmBrandForm').onsubmit = async (e) => {
       e.preventDefault(); const n = S.profile, v = (k) => $('#pb-' + k).value.trim(), f = {
         category: v('category'), threat: v('threat'), threatReason: v('threatReason'), positioning: v('positioning'), strengths: $('#pb-strengths').value, weaknesses: $('#pb-weaknesses').value,
-        regions: Object.fromEntries(REG.map((k) => [k, v('reg-' + k)])), revenueGBPm: v('revenueGBPm'), offers: [...document.querySelectorAll('.pb-offer:checked')].map((x) => x.value).join(', '), units: v('units'), skuCount: v('skuCount'), paSkus: v('paSkus'), paCategories: v('paCategories'), figuresYear: v('figuresYear'), lastVerified: v('lastVerified'), dataNote: v('dataNote'), hq: v('hq'), founded: v('founded'), employees: v('employees'), ownership: v('ownership'), website: v('website'), sources: $('#pb-sources').value,
-        watch: $('#pb-watch').checked
+        regions: Object.fromEntries(REG.map((k) => [k, v('reg-' + k)])), revenueGBPm: v('revenueGBPm'), offers: [...document.querySelectorAll('.pb-offer:checked')].map((x) => x.value).join(', '), units: v('units'), skuCount: v('skuCount'), paSkus: v('paSkus'), paCategories: v('paCategories'), figuresYear: v('figuresYear'), lastVerified: v('lastVerified'), dataNote: v('dataNote'), hq: v('hq'), founded: v('founded'), employees: v('employees'), ownership: v('ownership'), website: v('website'), sources: $('#pb-sources').value, socials: $('#pb-socials').value,
+        watch: $('#pb-watch').checked, notCompetitor: $('#pb-notCompetitor').checked
       };
       if (!isUs(n) && $('#pb-isUs').checked) f.isUs = true;
       try { const r = await api('POST', '/api/brands', { brand: n, fields: f }); setBrandData(r); applyBrands(); d.close(); toast('Profile saved'); refresh(); } catch (err) { $('#pb-err').textContent = err.message; $('#pb-err').className = 'sf-res bad'; }
@@ -1090,7 +1170,8 @@
     const rm = $('#pb-remove'); rm.dataset.name = n; rm.hidden = isUs(n);
     REG.forEach((k) => { $('#pb-reg-' + k).value = (r[k] || []).join(', '); });
     ['revenueGBPm', 'units', 'skuCount'].forEach((k) => { const v = k === 'revenueGBPm' ? revenueOf(n) : k === 'units' ? unitsOf(n) : skuOf(n); $('#pb-' + k).value = v == null ? '' : v; });
-    $('#pb-sources').value = (b.sources || []).join('\n'); $('#pb-watch').checked = !!b.watch;
+    $('#pb-sources').value = (b.sources || []).join('\n'); $('#pb-watch').checked = !!b.watch; $('#pb-notCompetitor').checked = !!b.notCompetitor;
+    $('#pb-socials').value = socialsOf(n).filter((x) => !x.search).map((x) => x.url).join('\n');
     $('#pb-isUs').checked = isUs(n); $('#pb-isUs').disabled = isUs(n); $('#pb-usnote').textContent = isUs(n) ? ' To change who “us” is, tick this on another brand.' : '';
     $('#pmBrand').showModal();
   }
@@ -1494,8 +1575,8 @@
       if (t.id === 'fdCmp') { const ids = searchModels(S.fq).map((x) => x.p).sort((a, b) => (isUs(b.brand) - isUs(a.brand)) || (priceOf(a).v == null) - (priceOf(b).v == null) || priceOf(a).v - priceOf(b).v).map((p) => p.id).slice(0, MAXCMP); if (!ids.length) return; S.cmp.us = ids.find((id) => isUs(prodById(id).brand)) || ids[0]; S.cmp.others = ids.filter((id) => id !== S.cmp.us); fixCmp(); return renderMatrix(); }
       const mvb = t.closest('[data-mv]'); if (mvb && !mvb.disabled) { const ids = [S.cmp.us, ...S.cmp.others].filter(prodById), at = ids.indexOf(mvb.dataset.mvid); return moveCmp(mvb.dataset.mvid, at + Number(mvb.dataset.mv)); }
       const dn = t.closest('[data-dens]'); if (dn) { S.dens = dn.dataset.dens === 'comfortable' ? 'comfortable' : 'compact'; sv('cih_pm_dens', S.dens); const ap = $('.ap'); if (ap) { ap.classList.remove('compact', 'comfortable'); ap.classList.add(S.dens); } document.querySelectorAll('[data-dens]').forEach((b) => { const on = b.dataset.dens === S.dens; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); }); return; }
-      const st = t.closest('button[data-sec]'); if (st) { const k = st.dataset.sec, shut = !S.secClosed.has(k); shut ? S.secClosed.add(k) : S.secClosed.delete(k); sv('cih_pm_secs', [...S.secClosed]); const sc = st.closest('.ap-sec'); if (sc) sc.classList.toggle('closed', shut); st.setAttribute('aria-expanded', !shut); return; }
-      const sa = t.closest('[data-secall]'); if (sa) { const shut = sa.dataset.secall === 'close'; document.querySelectorAll('.ap-sec').forEach((sc) => { const k = sc.dataset.sec; shut ? S.secClosed.add(k) : S.secClosed.delete(k); sc.classList.toggle('closed', shut); const b = sc.querySelector('button[data-sec]'); if (b) b.setAttribute('aria-expanded', !shut); }); sv('cih_pm_secs', [...S.secClosed]); return; }
+      const st = t.closest('button[data-sec]'); if (st) { const k = st.dataset.sec, shut = !S.secClosed.has(k); shut ? S.secClosed.add(k) : S.secClosed.delete(k); sv('cih_pm_secs2', [...S.secClosed]); const sc = st.closest('.ap-sec'); if (sc) sc.classList.toggle('closed', shut); st.setAttribute('aria-expanded', !shut); return; }
+      const sa = t.closest('[data-secall]'); if (sa) { const shut = sa.dataset.secall === 'close'; document.querySelectorAll('.ap-sec').forEach((sc) => { const k = sc.dataset.sec; shut ? S.secClosed.add(k) : S.secClosed.delete(k); sc.classList.toggle('closed', shut); const b = sc.querySelector('button[data-sec]'); if (b) b.setAttribute('aria-expanded', !shut); }); sv('cih_pm_secs2', [...S.secClosed]); return; }
       const ni = t.closest('.ni'); if (ni) { const c = ni.closest('.ap-c'); if (c) c.classList.toggle('shownote'); return; }
       const fl = t.closest('[data-fill]'); if (fl) { const p = prodById(fl.dataset.fill); if (p && window.CIPM.collectOpen) window.CIPM.collectOpen(p.brand, p.model); return; }
       if (t.id === 'mfClear') { S.mf = MF0(); S.mfView = ''; return refreshModels(); }
@@ -1519,6 +1600,7 @@
         case 'manageWatch': case 'pinFirst': return manageWatch();
         case 'profBack': return go('competitors');
         case 'profEdit': return openBrandDialog();
+        case 'profPost': return C.openPost && C.openPost(S.profile);
         case 'profPrint': return exportProfile(S.profile, 'print');
         case 'profHtml': return exportProfile(S.profile, 'file');
         case 'dgPreview': try { S.digest = await api('GET', '/api/digest'); renderInsights(); } catch (err) { toast(err.message); } return;
@@ -1579,7 +1661,7 @@
   // Competitor cards: the brand's models, with their own pictures where there is one (v3.12).
   const modelStrip = (n) => { const ps = S.products.filter((p) => p.brand === n && !isDisc(p)); if (!ps.length) return ''; const pics = ps.filter((p) => modelPic(p)), rest = ps.length - Math.min(4, pics.length);
     return `<div class="mstrip" aria-label="${ps.length} models">${pics.slice(0, 4).map((p) => `<img src="${esc(modelPic(p))}" alt="${esc(p.model)}" title="${esc(p.model)}" loading="lazy">`).join('')}<span class="muted">${pics.length ? (rest ? `+${rest} more` : '') : `${ps.length} model${ps.length === 1 ? '' : 's'}, no pictures yet`}</span></div>`; };
-  Object.assign(C, { modelStrip, editPicture, canAdjust, picUp: (n) => bm(n).photoSource === 'uploaded', prio, passNews, photo: (n) => bm(n).photo || '', pic: (n) => (bm(n).photoSource === 'uploaded' && bm(n).photo) || C.images[n] || bm(n).photo || ((S.products.find((p) => p.brand === n && modelPic(p)) || {}).photo) || '' /* no brand picture: use one of its models' pictures */, setPhoto: (b, photo, src) => { S.brands[b] = Object.assign({}, bm(b), { photo, photoSource: src }); }, isUs, badges, evtChip, dupLine, dupMeta, passEvt: (n) => !C.evtSel || evtOf(n) === C.evtSel, evtSel: '', openProfile, renderInsights, onNews: () => {
+  Object.assign(C, { metaExtra, modelStrip, editPicture, canAdjust, picUp: (n) => bm(n).photoSource === 'uploaded', prio, passNews, photo: (n) => bm(n).photo || '', pic: (n) => (bm(n).photoSource === 'uploaded' && bm(n).photo) || C.images[n] || bm(n).photo || ((S.products.find((p) => p.brand === n && modelPic(p)) || {}).photo) || '' /* no brand picture: use one of its models' pictures */, setPhoto: (b, photo, src) => { S.brands[b] = Object.assign({}, bm(b), { photo, photoSource: src }); }, isUs, badges, evtChip, dupLine, dupMeta, passEvt: (n) => !C.evtSel || evtOf(n) === C.evtSel, evtSel: '', openProfile, renderInsights, onNews: () => {
     // The feed reloads every minute. Only redraw Insights when the news actually changed, so the page does not jump, lose focus or close panels for nothing.
     const a = ($('.view.active') || {}).id, sig = C.news.length + '|' + (C.news[0] || {}).date + '|' + C.news.filter((n) => n.archived || n.dupOf).length;
     if (a === 'insights' && sig !== S.newsSig) { const y = window.scrollY; RENDER[a](); window.scrollTo(0, y); } S.newsSig = sig;
@@ -1589,6 +1671,8 @@
   // Shorter menu labels so all eight sections fit in one row (page titles stay as they are).
   [['news', 'News'], ['social', 'Social'], ['matrix', 'Comparison']].forEach(([v, l]) => { const b = $(`.side .nav[data-v="${v}"]`); if (b) { b.title = b.textContent; b.textContent = l; } });
   const side = $('.side'); ['sources', 'competitors', 'matrix', 'social', 'insights', 'news'].forEach((v) => side.insertBefore(side.querySelector(`.nav[data-v="${v}"]`), side.firstChild)); // News, Insights, Social, Matrix, Competitors, Sources
+  // v3.15: the Social watch screen is gone; each competitor profile shows its social channels as buttons instead.
+  { const sb = side.querySelector('.nav[data-v="social"]'); if (sb) sb.remove(); }
   const evtSelect = document.createElement('select'); evtSelect.className = 'field'; evtSelect.id = 'evtType'; evtSelect.setAttribute('aria-label', 'Event type');
   evtSelect.innerHTML = '<option value="">All event types</option>' + E.EVENT_TYPES.map((t) => `<option>${t}</option>`).join(''); $('#news .tools').appendChild(evtSelect);
   const archSel = document.createElement('select'); archSel.className = 'field'; archSel.id = 'archSel'; archSel.setAttribute('aria-label', 'Archived articles'); archSel.innerHTML = '<option value="hide">Hide archived</option><option value="show">Show archived too</option><option value="only">Only archived</option>'; $('#news .tools').appendChild(archSel);
@@ -1598,12 +1682,13 @@
   $('#mpicFile').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; const p = prodById(S.mpic); if (!f || !p) return; if (!/^image\/(png|jpeg|webp)$/.test(f.type) || f.size > 12e6) return toast('Choose a PNG, JPEG or WebP picture under 12 MB'); editPicture(f, { title: `Picture: ${prodName(p)}`, onSave: (u) => saveModelPicture(p.id, u), onRemove: modelPic(p) ? () => removeModelPicture(p.id) : null }); };
   window.CIPM = { S, api, RENDER, mkView, mkNav, go, C, usName, openModel, brandNow, setBrandData, applyBrands, exportBrandsCsv, exportCsv, modelPic, pictureFromPage, autoPicture, refresh };
   modelDialog(); brandDialog(); addCompetitorTools(); wire();
-  S.cmp = Object.assign({ us: '', others: [] }, ld('cih_pm_cmp', {})); S.wide = ld('cih_pm_wide', true); S.views = ld('cih_pm_views', []).filter((v) => v && v.name && v.f); S.dens = ld('cih_pm_dens', 'compact') === 'comfortable' ? 'comfortable' : 'compact'; S.secClosed = new Set(ld('cih_pm_secs', []));
+  S.cmp = Object.assign({ us: '', others: [] }, ld('cih_pm_cmp', {})); S.wide = ld('cih_pm_wide', true); S.views = ld('cih_pm_views', []).filter((v) => v && v.name && v.f); S.dens = ld('cih_pm_dens', 'compact') === 'comfortable' ? 'comfortable' : 'compact'; S.secClosed = new Set(ld('cih_pm_secs2', ['record']));   // v3.15: start with the key sections open (the old saved state had everything closed)
   { const vs = ld('cih_pm_visit', null) || {}; let base = vs.base || 0; if (vs.last && Date.now() - vs.last > 4 * 36e5) base = vs.last; if (!base) base = Date.now() - 7 * 864e5;
     S.visitBase = base; S.visitFirst = !vs.last; const saveVisit = () => sv('cih_pm_visit', { base: S.visitBase, last: Date.now() }); saveVisit();
     window.addEventListener('pagehide', saveVisit); document.addEventListener('visibilitychange', () => { if (document.hidden) saveVisit(); }); } S.fx = Object.assign({}, FX_DEFAULT, ld('cih_pm_fx', {})); S.mkMode = ld('cih_pm_mkmode', 'count') === 'gap' ? 'gap' : 'count'; S.howOpen = !!ld('cih_pm_howto', false);
   (async () => {
-    try { const [b, p] = await Promise.all([api('GET', '/api/brands'), api('GET', '/api/products')]); setBrandData(b); S.products = p.products || []; }
+    // Models first: syncBrands() names each brand's representative model from them (otherwise a brand added by hand said "No model added yet" even with models saved).
+    try { const [b, p] = await Promise.all([api('GET', '/api/brands'), api('GET', '/api/products')]); S.products = p.products || []; setBrandData(b); }
     catch (err) { toast('Could not load saved profiles and models: ' + err.message); }
     applyBrands(); go(START || 'news');
   })();

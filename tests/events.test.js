@@ -12,3 +12,8 @@ test('classifyDetailed explains itself and says how sure it is',()=>{
   const o=E.classifyDetailed('Council plans new cycle lanes','');assert.equal(o.type,'Other');assert.equal(o.confidence,'low');
 });
 test('every event type has a style class',()=>{const h=fs.readFileSync(new URL('../public/tracker.html',import.meta.url),'utf8');for(const t of E.EVENT_TYPES)assert.ok(h.includes('.e-'+t.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')+'{'),t)});
+
+test('v3.15: "reveals" is a launch only when a product follows', () => {
+  assert.notEqual(E.classify("'It's incredibly sad': Brompton boss reveals new Ashford factory not likely for years"), 'Launch');
+  assert.equal(E.classify('Lemmo fully reveals Lemmo 3 APV longtail cargo e-bike'), 'Launch');
+});

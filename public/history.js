@@ -4,7 +4,9 @@
   'use strict';
   const X = window.CIPM; if (!X) return;
   const { S, api, RENDER, mkView, mkNav, go, C } = X, { $, esc, toast } = C;
-  const K = window.CICollect || {}, LBL = Object.assign({ status: 'On sale / discontinued', discontinuedAt: 'Discontinued on', retail: 'Street prices', lastVerified: 'Last verified', photo: 'Picture', photoSource: 'Picture source', watch: 'On the watchlist', threat: 'Threat level', threatReason: 'Why that threat level', isUs: 'This is us', sources: 'Sources', regions: 'Countries', na: 'Not published', removed: 'Removed', custom: 'Added by us' }, K.BLABEL || {}, K.LABEL || {});
+  const K = window.CICollect || {}, LBL = Object.assign({ status: 'On sale / discontinued', discontinuedAt: 'Discontinued on', retail: 'Street prices', lastVerified: 'Last verified', photo: 'Picture', photoSource: 'Picture source', watch: 'On the watchlist', threat: 'Threat level', threatReason: 'Why that threat level', isUs: 'This is us', sources: 'Sources', regions: 'Countries', na: 'Not published', removed: 'Removed', custom: 'Added by us', skuCount: 'Portfolio (SKUs)', paSkus: 'P&A products', paCategories: 'P&A offering', units: 'Annual units', revenueGBPm: 'Revenue (£m)', figuresYear: 'Year of the figures', dataNote: 'Note on the figures', socials: 'Social channels', notCompetitor: 'Not a direct competitor', positioning: 'Positioning', strengths: 'Strengths', weaknesses: 'Weaknesses', category: 'Category', website: 'Website', hq: 'Head office', founded: 'Founded', employees: 'Size', ownership: 'Ownership', offers: 'What they sell', addedAt: 'Added on' }, K.BLABEL || {}, K.LABEL || {});
+  // v3.15: any field without a label is shown in words ("batteryWh" -> "Battery wh") rather than as its code name.
+  const label = (k) => LBL[k] || String(k).replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase()).replace(/\b([A-Z])([A-Z]+)\b/g, (m) => m).replace(/ ([A-Z])(?=[a-z])/g, (m, c) => ' ' + c.toLowerCase());
   const ui = { tab: 'changes', kind: '', who: '', q: '', data: null, alerts: null, backups: null, more: 60 };
   const root = mkView('history', ''); mkNav('history', 'History');
   const VIA = { edit: 'by hand', collect: 'Collect data', 're-check': 're-check', 'ai-check': 'AI re-check', import: 'import', undo: 'undo', restore: 'restore' };
@@ -26,7 +28,14 @@
     if (e.action === 'remove') return `<span class="muted">${e.kind === 'model' ? 'Model deleted' : 'Competitor removed'}</span>`;
     if (e.action === 'restore') return '<span class="muted">All data replaced by the backup</span>';
     const ks = Object.keys(e.after || {}).filter((k) => !['photoSource', 'updatedAt'].includes(k));
-    return `<ul class="hx-f">${ks.slice(0, 8).map((k) => `<li><span class="hx-k">${esc(LBL[k] || k)}</span> ${val(k, e.before[k])} <span class="hx-arrow">→</span> <b>${val(k, e.after[k])}</b></li>`).join('')}${ks.length > 8 ? `<li class="muted">and ${ks.length - 8} more</li>` : ''}</ul>`;
+    return `<ul class="hx-f">${ks.slice(0, 8).map((k) => `<li><span class="hx-k">${esc(label(k))}</span> ${val(k, e.before[k])} <span class="hx-arrow">→</span> <b>${val(k, e.after[k])}</b></li>`).join('')}${ks.length > 8 ? `<li class="muted">and ${ks.length - 8} more</li>` : ''}</ul>`;
+  }
+  // v3.15: put a name on a password-only session, so History can say who made a change.
+  api('GET', '/api/me').then((m) => { ui.me = m.name; if (ui.data) render(); }).catch(() => {});
+  async function setName() {
+    let saved = ''; try { saved = localStorage.getItem('cih_name') || ''; } catch (e) { /* ignore */ }
+    const name = (prompt('Your name, as it should appear on your changes:', saved) || '').trim(); if (!name) return;
+    try { const r = await api('PUT', '/api/me', { name }); ui.me = r.name; try { localStorage.setItem('cih_name', r.name); } catch (e) { /* ignore */ } toast('Your changes will now show as ' + r.name); render(); } catch (err) { toast(err.message); }
   }
   async function load() {
     try { ui.data = await api('GET', '/api/history?limit=1500'); } catch (e) { ui.data = { entries: [], error: e.message }; }
@@ -38,7 +47,7 @@
   function changesHtml() {
     if (!ui.data) return '<div class="source-empty">Loading the history…</div>';
     const all = ui.data.entries || [], people = [...new Set(all.map((e) => e.by))].sort(), q = ui.q.toLowerCase();
-    const list = all.filter((e) => (!ui.kind || e.kind === ui.kind) && (!ui.who || e.by === ui.who) && (!q || `${e.name} ${e.by} ${Object.keys(e.after || {}).map((k) => LBL[k] || k).join(' ')}`.toLowerCase().includes(q)));
+    const list = all.filter((e) => (!ui.kind || e.kind === ui.kind) && (!ui.who || e.by === ui.who) && (!q || `${e.name} ${e.by} ${Object.keys(e.after || {}).map(label).join(' ')}`.toLowerCase().includes(q)));
     let lastDay = '';
     const rows = list.slice(0, ui.more).map((e) => {
       const d = day(e.at), head = d !== lastDay ? `<div class="hx-day">${esc(d)}</div>` : ''; lastDay = d;
@@ -46,6 +55,7 @@
       return `${head}<div class="hx-row${e.undone ? ' undone' : ''}"><div class="hx-t">${new Date(e.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div><div class="hx-b"><div class="hx-h"><strong>${esc(e.name || e.key)}</strong><span class="hx-who">${esc(e.by)}</span><span class="hx-via">${esc(VIA[e.via] || e.via)}</span>${e.undone ? `<span class="hx-undone">Undone by ${esc(e.undone.by)}, ${esc(when(e.undone.at))}</span>` : ''}</div>${fields(e)}</div><div class="hx-a">${can ? `<button type="button" class="imagebtn" data-undo="${esc(e.id)}" title="Put back the values from before this change">Undo</button>` : ''}</div></div>`;
     }).join('');
     return `<div class="cl-row"><label class="ctl"><span>Show</span><select class="field" id="hxKind"><option value="">Everything</option><option value="model"${ui.kind === 'model' ? ' selected' : ''}>Models</option><option value="brand"${ui.kind === 'brand' ? ' selected' : ''}>Brand profiles</option></select></label><label class="ctl"><span>Who</span><select class="field" id="hxWho"><option value="">Everyone</option>${people.map((p) => `<option${p === ui.who ? ' selected' : ''}>${esc(p)}</option>`).join('')}</select></label><label class="ctl hx-q"><span>Find</span><input class="field" id="hxQ" placeholder="Model, brand, person or field" value="${esc(ui.q)}"></label><span class="muted hx-count">${list.length} change${list.length === 1 ? '' : 's'}</span></div>
+      ${ui.me && /^someone$/i.test(ui.me) ? '<div class="hx-anon">Your changes are recorded as <b>Someone</b>, because sign-in asks only for the password. <button type="button" class="linkbtn" id="hxName">Add your name</button> and your next changes will show it (no new sign-in needed).</div>' : ''}
       ${rows || '<div class="pm-empty"><strong>No changes yet</strong><span>Every save from now on is listed here, with who made it. Changes made before v3.13 are not in the history.</span></div>'}
       ${list.length > ui.more ? `<button type="button" class="imagebtn hx-more" id="hxMore">Show more (${list.length - ui.more} older)</button>` : ''}`;
   }
@@ -87,6 +97,7 @@
     try { const r = await api('POST', '/api/backup', { ...payload, confirm: 'RESTORE' }); toast(`Restored: ${r.restored.length} parts. Reloading…`); setTimeout(() => location.reload(), 900); } catch (e) { toast('Not restored: ' + e.message); }
   }
   root.addEventListener('click', async (e) => {
+    if (e.target.id === 'hxName') return setName();
     const t = e.target.closest('button'); if (!t) return;
     if (t.dataset.hxtab) { ui.tab = t.dataset.hxtab; render(); if (ui.tab === 'alerts') loadAlerts(); if (ui.tab === 'backups') loadBackups(); return; }
     if (t.dataset.undo) return doUndo(t.dataset.undo);
