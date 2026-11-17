@@ -26,7 +26,8 @@ Local development: `CI_LOCAL_STORE=./.data npm run dev` keeps data on disk inste
 7. **Sources.** Sources that need attention come first with the reason in plain words; select the *Need attention* figure to show only those. *Remove…* is a quiet link (it still asks first).
 8. **Profiles.** A brand added by hand no longer says "No model added yet" when it has models. The profile map uses orange (theirs only), green (both) and blue (only us). The note on the figures holds up to 1,200 characters.
 9. **History** shows field names in words, and a password-only session can add a name (History › *Add your name*) so changes stop showing as "Someone".
-10. Headlines in another language get a **Translate** link. *Every model is up to date* in Collect data is a badge, not a button. News summaries use the full width next to the picture.
+10. **Updates show straight away.** The page and its scripts are now served with `Cache-Control: no-cache`, so a browser checks for a new version instead of showing the old one after a deploy.
+11. Headlines in another language get a **Translate** link. *Every model is up to date* in Collect data is a badge, not a button. News summaries use the full width next to the picture.
 
 ## v3.13.0
 1. **Price history.** Every list price saved (by hand, Collect data or a re-check) and every street price read is kept with its date. **Insights › Charts › Price history** draws each model's price over time with street prices as dots, and lists every change (was, now, %, who or what found it).

@@ -15,5 +15,16 @@
       "path": "/api/recheck",
       "schedule": "0 5 * * 1"
     }
+  ],
+  "headers": [
+    {
+      "source": "/(tracker|tracker.html|pm.js|collect.js|history.js|events.js|world-map.js|login|login.html)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
+    }
   ]
 }
